@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, ArrowUpRight, Building2, CheckCircle2,
-  ChevronRight, CircleDot, Clock3, Droplets, Gauge, ImagePlus,
+  CircleDot, Clock3, Droplets, Gauge, ImagePlus,
   Layers3, Lightbulb, LocateFixed, Map as MapIcon, Navigation,
   Plus, Radio, Route, Search, Send, ShieldCheck, Sparkles,
   Trash2, UserRound, Waves, Wrench, Zap,
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
@@ -29,10 +30,22 @@ type Layer = "All" | "Water" | "Roads" | "Waste" | "Electricity";
 type Hotspot = {
   id: number; area: string; category: Exclude<Layer, "All">; issue: string;
   priority: number; reports: number; growth: number; since: string;
-  radius: string; position: { left: string; top: string };
+  radius: string; status?: string; position: { left: string; top: string };
 };
 
-const hotspots: Hotspot[] = [
+type Complaint = {
+  id: number; trackingCode: string; description: string; location: string;
+  category: string; subcategory: string; severity: number; confidence: number;
+  status: string; hotspotId: number; evidenceKey?: string | null; createdAt: string;
+};
+
+type Submission = {
+  complaint: { trackingCode: string; description: string; location: string; status: string; hotspotId: number };
+  analysis: { category: string; subcategory: string; severity: number; confidence: number; similarReports: number };
+  hotspot: { id: number; area: string; category: string; issue: string; priority: number; reports: number; growth: number };
+};
+
+const fallbackHotspots: Hotspot[] = [
   { id: 1, area: "Sector 17", category: "Water", issue: "Probable pipeline leakage", priority: 8.7, reports: 37, growth: 270, since: "3 days", radius: "1.3 km", position: { left: "50%", top: "42%" } },
   { id: 2, area: "Sector 24", category: "Roads", issue: "Recurring road damage", priority: 7.1, reports: 22, growth: 84, since: "8 days", radius: "0.8 km", position: { left: "69%", top: "58%" } },
   { id: 3, area: "Model Town", category: "Waste", issue: "Uncollected solid waste", priority: 6.4, reports: 19, growth: 41, since: "5 days", radius: "0.6 km", position: { left: "30%", top: "62%" } },
@@ -69,7 +82,7 @@ function PriorityBadge({ value }: { value: number }) {
   return <Badge variant="outline" className={`${tone} font-mono`}>{value.toFixed(1)} priority</Badge>;
 }
 
-function HotspotMap({ layer, onSelect }: { layer: Layer; onSelect: (h: Hotspot) => void }) {
+function HotspotMap({ layer, hotspots, onSelect }: { layer: Layer; hotspots: Hotspot[]; onSelect: (h: Hotspot) => void }) {
   const visible = useMemo(() => hotspots.filter((h) => layer === "All" || h.category === layer), [layer]);
   return (
     <div className="map-grid relative min-h-[520px] w-full rounded-2xl border soft-ring" aria-label={`${layer} intelligence map`}>
@@ -132,21 +145,94 @@ export default function Home() {
   const [reportOpen, setReportOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [adopted, setAdopted] = useState<number[]>([]);
+  const [hotspots, setHotspots] = useState<Hotspot[]>(fallbackHotspots);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [stats, setStats] = useState({ activeReports: 97, emergingZones: 2, underAction: 0, resolvedZones: 0 });
+  const [submission, setSubmission] = useState<Submission | null>(null);
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [orgSearch, setOrgSearch] = useState("");
+  const leadHotspot = hotspots[0] ?? fallbackHotspots[0];
 
-  function submitReport(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitted(true);
+  async function loadDashboard() {
+    try {
+      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      if (!response.ok) throw new Error("City data is temporarily unavailable.");
+      const data = await response.json();
+      const liveHotspots = (data.hotspots as Array<Record<string, unknown>>).map((item) => ({
+        id: Number(item.id), area: String(item.area), category: String(item.category) as Hotspot["category"],
+        issue: String(item.issue), priority: Number(item.priority), reports: Number(item.reports),
+        growth: Number(item.growth), radius: String(item.radius), status: String(item.status),
+        since: "Live", position: { left: `${Number(item.positionLeft)}%`, top: `${Number(item.positionTop)}%` },
+      }));
+      if (liveHotspots.length) setHotspots(liveHotspots);
+      setComplaints(data.complaints ?? []);
+      if (data.stats) setStats({
+        activeReports: Number(data.stats.activeReports ?? 0),
+        emergingZones: Number(data.stats.emergingZones ?? 0),
+        underAction: Number(data.stats.underAction ?? 0),
+        resolvedZones: Number(data.stats.resolvedZones ?? 0),
+      });
+      setAdopted(liveHotspots.filter((h) => h.status === "Under Investigation").map((h) => h.id));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to refresh city data");
+    }
   }
 
-  function adoptIssue(id: number) {
-    setAdopted((current) => current.includes(id) ? current : [...current, id]);
-    toast.success("Issue moved to investigation", { description: "Citizens will now see the updated response status." });
-    setSelected(null);
+  useEffect(() => { void loadDashboard(); }, []);
+
+  async function submitReport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    try {
+      const form = new FormData(event.currentTarget);
+      let evidenceKey: string | null = null;
+      if (evidenceFile) {
+        const evidence = new FormData();
+        evidence.append("file", evidenceFile);
+        const uploadResponse = await fetch("/api/evidence", { method: "POST", body: evidence });
+        const upload = await uploadResponse.json();
+        if (!uploadResponse.ok) throw new Error(upload.error || "Evidence upload failed.");
+        evidenceKey = upload.key;
+      }
+      const response = await fetch("/api/complaints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description: form.get("description"),
+          location: form.get("location"),
+          evidenceKey,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "The report could not be submitted.");
+      setSubmission(data);
+      setSubmitted(true);
+      await loadDashboard();
+    } catch (error) {
+      toast.error("Report not submitted", { description: error instanceof Error ? error.message : "Please try again." });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function adoptIssue(id: number) {
+    try {
+      const response = await fetch(`/api/hotspots/${id}/adopt`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to investigate this issue.");
+      setAdopted((current) => current.includes(id) ? current : [...current, id]);
+      toast.success("Issue moved to investigation", { description: "Citizens can now see the updated response status." });
+      setSelected(null);
+      await loadDashboard();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update the issue");
+    }
   }
 
   function resetDialog(open: boolean) {
     setReportOpen(open);
-    if (!open) window.setTimeout(() => setSubmitted(false), 250);
+    if (!open) window.setTimeout(() => { setSubmitted(false); setSubmission(null); setEvidenceFile(null); }, 250);
   }
 
   return (
@@ -170,9 +256,7 @@ export default function Home() {
             <Button onClick={() => resetDialog(true)} className="rounded-full px-4 font-bold">
               <Plus className="size-4" /> Report issue
             </Button>
-            <button className="grid size-9 place-items-center rounded-full border bg-secondary" aria-label="Open profile">
-              <UserRound className="size-4" />
-            </button>
+            <Badge variant="secondary" className="hidden rounded-full px-3 py-2 sm:inline-flex">Public beta</Badge>
           </div>
         </div>
       </div>
@@ -205,10 +289,10 @@ export default function Home() {
           </div>
 
           <section className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="Active reports" value="1,284" change="+12.4%" icon={Activity} />
-            <StatCard label="Emerging zones" value="08" change="2 critical" icon={Radio} />
-            <StatCard label="Under action" value="34" change="+6 today" icon={Wrench} />
-            <StatCard label="Resolved this week" value="127" change="+18.1%" icon={CheckCircle2} />
+            <StatCard label="Clustered reports" value={stats.activeReports.toLocaleString()} change="live" icon={Activity} />
+            <StatCard label="Emerging zones" value={String(stats.emergingZones).padStart(2, "0")} change="priority ≥ 7" icon={Radio} />
+            <StatCard label="Zones under action" value={String(stats.underAction).padStart(2, "0")} change="organizations active" icon={Wrench} />
+            <StatCard label="Resolved zones" value={String(stats.resolvedZones).padStart(2, "0")} change="tracked publicly" icon={CheckCircle2} />
           </section>
 
           <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)_310px]">
@@ -230,10 +314,9 @@ export default function Home() {
                   );
                 })}
               </div>
-              <Button variant="ghost" className="mt-3 w-full justify-between text-muted-foreground">View all zones <ChevronRight /></Button>
             </aside>
 
-            <div className="order-1 xl:order-2"><HotspotMap layer={layer} onSelect={setSelected} /></div>
+            <div className="order-1 xl:order-2"><HotspotMap layer={layer} hotspots={hotspots} onSelect={setSelected} /></div>
 
             <aside className="order-3 space-y-4">
               <article className="rounded-2xl border border-red-400/20 bg-[linear-gradient(135deg,rgba(255,95,95,.12),rgba(255,95,95,.02))] p-5 soft-ring">
@@ -241,14 +324,14 @@ export default function Home() {
                   <span className="grid size-10 place-items-center rounded-xl bg-red-400/15 text-red-300"><AlertTriangle className="size-5" /></span>
                   <Badge className="bg-red-400 text-[#250606] hover:bg-red-400">Emerging hotspot</Badge>
                 </div>
-                <p className="text-xs font-bold uppercase tracking-[.18em] text-red-200/70">Water infrastructure</p>
-                <h2 className="mt-2 text-2xl font-black">Sector 17</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-300">Reports suggest a probable pipeline leakage affecting water pressure across the area.</p>
+                <p className="text-xs font-bold uppercase tracking-[.18em] text-red-200/70">{leadHotspot.category} infrastructure</p>
+                <h2 className="mt-2 text-2xl font-black">{leadHotspot.area}</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-300">Reports suggest {leadHotspot.issue.toLowerCase()} affecting residents across the area.</p>
                 <div className="mt-5 grid grid-cols-2 gap-3 border-t border-red-200/10 pt-4">
-                  <div><p className="text-xs text-muted-foreground">Priority</p><p className="mt-1 font-mono text-xl font-bold">8.7/10</p></div>
-                  <div><p className="text-xs text-muted-foreground">24h change</p><p className="mt-1 font-mono text-xl font-bold text-red-300">+270%</p></div>
+                  <div><p className="text-xs text-muted-foreground">Priority</p><p className="mt-1 font-mono text-xl font-bold">{leadHotspot.priority}/10</p></div>
+                  <div><p className="text-xs text-muted-foreground">24h change</p><p className="mt-1 font-mono text-xl font-bold text-red-300">+{leadHotspot.growth}%</p></div>
                 </div>
-                <Button onClick={() => setSelected(hotspots[0])} variant="outline" className="mt-5 w-full justify-between border-red-300/20 bg-red-200/5 text-red-100 hover:bg-red-200/10">Open intelligence brief <ArrowUpRight /></Button>
+                <Button onClick={() => setSelected(leadHotspot)} variant="outline" className="mt-5 w-full justify-between border-red-300/20 bg-red-200/5 text-red-100 hover:bg-red-200/10">Open intelligence brief <ArrowUpRight /></Button>
               </article>
 
               <article className="rounded-2xl border bg-card/70 p-5 soft-ring">
@@ -263,23 +346,25 @@ export default function Home() {
         <TabsContent value="citizen" className="p-4 sm:p-6">
           <div className="mx-auto max-w-6xl">
             <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-              <div><p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-primary">Citizen workspace</p><h1 className="text-3xl font-black tracking-tight">Your reports, clearly tracked.</h1><p className="mt-2 text-muted-foreground">No departments or complicated categories—describe the problem and we route it.</p></div>
+              <div><p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-primary">Citizen workspace</p><h1 className="text-3xl font-black tracking-tight">Recent reports, clearly tracked.</h1><p className="mt-2 text-muted-foreground">No departments or complicated categories—describe the problem and we route it.</p></div>
               <Button onClick={() => resetDialog(true)}><Plus /> Report a new issue</Button>
             </div>
             <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
               <section className="space-y-3">
-                {[
-                  { id: "#1842", title: "Pipeline leaking near main market", place: "Sector 17, Rohini", category: "Water · Pipeline leakage", status: "Under investigation", color: "text-amber-200 bg-amber-300/10" },
-                  { id: "#1736", title: "Streetlight not working for three nights", place: "Pocket B, Sector 11", category: "Electricity · Streetlight", status: "Solution proposed", color: "text-sky-200 bg-sky-300/10" },
-                  { id: "#1594", title: "Garbage accumulating beside community park", place: "Model Town", category: "Waste · Collection", status: "Resolved", color: "text-primary bg-primary/10" },
-                ].map((report) => (
+                {complaints.length === 0 ? (
+                  <Empty className="min-h-72 rounded-2xl border bg-card/75">
+                    <EmptyHeader><EmptyMedia variant="icon"><Send /></EmptyMedia><EmptyTitle>No public reports yet</EmptyTitle><EmptyDescription>Submit the first live report. It will be classified, saved, and connected to the city map.</EmptyDescription></EmptyHeader>
+                    <EmptyContent><Button onClick={() => resetDialog(true)}><Plus /> Report an issue</Button></EmptyContent>
+                  </Empty>
+                ) : complaints.map((report) => (
                   <article key={report.id} className="rounded-2xl border bg-card/75 p-5 soft-ring">
                     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                      <div><p className="mb-2 font-mono text-xs text-muted-foreground">{report.id}</p><h2 className="font-bold">{report.title}</h2><p className="mt-1 text-sm text-muted-foreground">{report.place} · {report.category}</p></div>
-                      <Badge className={`${report.color} shrink-0 border-0 hover:${report.color}`}>{report.status}</Badge>
+                      <div><p className="mb-2 font-mono text-xs text-muted-foreground">{report.trackingCode}</p><h2 className="font-bold">{report.description}</h2><p className="mt-1 text-sm text-muted-foreground">{report.location} · {report.category} · {report.subcategory}</p></div>
+                      <Badge className={`shrink-0 border-0 ${report.status === "Resolved" ? "bg-primary/10 text-primary" : report.status === "Under Investigation" ? "bg-amber-300/10 text-amber-200" : "bg-sky-300/10 text-sky-200"}`}>{report.status}</Badge>
                     </div>
+                    {report.evidenceKey && <a href={`/api/evidence?key=${encodeURIComponent(report.evidenceKey)}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"><ImagePlus className="size-4" /> View evidence</a>}
                     <div className="mt-5 flex items-center gap-1.5" aria-label={`Status: ${report.status}`}>
-                      {[0,1,2,3].map((step) => <span key={step} className={`h-1.5 flex-1 rounded-full ${report.status === "Resolved" || step < (report.status === "Solution proposed" ? 3 : 2) ? "bg-primary" : "bg-secondary"}`} />)}
+                      {[0,1,2,3].map((step) => <span key={step} className={`h-1.5 flex-1 rounded-full ${report.status === "Resolved" || step < (report.status === "Under Investigation" ? 2 : 1) ? "bg-primary" : "bg-secondary"}`} />)}
                     </div>
                   </article>
                 ))}
@@ -300,10 +385,10 @@ export default function Home() {
           <div className="mx-auto max-w-6xl">
             <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
               <div><p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-primary">Matched for JalSetu Foundation</p><h1 className="text-3xl font-black tracking-tight">Relevant problems, ranked.</h1><p className="mt-2 text-muted-foreground">Water infrastructure opportunities within your Delhi NCR operating area.</p></div>
-              <div className="relative max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search area or issue" /></div>
+              <div className="relative max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={orgSearch} onChange={(event) => setOrgSearch(event.target.value)} className="pl-9" placeholder="Search area or issue" /></div>
             </div>
             <section className="grid gap-4">
-              {hotspots.filter((h) => h.category === "Water" || h.id === 2).map((h, index) => {
+              {hotspots.filter((h) => (h.category === "Water" || h.id === 2) && `${h.area} ${h.issue}`.toLowerCase().includes(orgSearch.toLowerCase())).map((h, index) => {
                 const Icon = layerConfig[h.category].icon;
                 const isAdopted = adopted.includes(h.id);
                 return (
@@ -334,25 +419,25 @@ export default function Home() {
                 <DialogDescription>Describe what happened. You don’t need to know the department or category.</DialogDescription>
               </DialogHeader>
               <div className="my-6 space-y-5">
-                <label className="block"><span className="mb-2 block text-sm font-semibold">What is happening?</span><Textarea required minLength={12} className="min-h-32 resize-none" placeholder="Example: Water has been leaking from the main pipe since yesterday..." /></label>
-                <label className="block"><span className="mb-2 block text-sm font-semibold">Location</span><div className="relative"><Navigation className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-primary" /><Input required className="pl-9" defaultValue="Sector 17, Rohini, Delhi" /></div></label>
-                <button type="button" className="flex w-full items-center gap-3 rounded-xl border border-dashed p-4 text-left text-sm text-muted-foreground transition hover:border-primary/60 hover:bg-primary/5"><span className="grid size-9 place-items-center rounded-lg bg-secondary"><ImagePlus className="size-4" /></span><span><strong className="block text-foreground">Add photo or video</strong>Optional evidence helps verification</span></button>
+                <label className="block"><span className="mb-2 block text-sm font-semibold">What is happening?</span><Textarea name="description" required minLength={12} maxLength={1200} className="min-h-32 resize-none" placeholder="Example: Water has been leaking from the main pipe since yesterday..." /></label>
+                <label className="block"><span className="mb-2 block text-sm font-semibold">Location</span><div className="relative"><Navigation className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-primary" /><Input name="location" required maxLength={160} className="pl-9" defaultValue="Sector 17, Rohini, Delhi" /></div></label>
+                <label className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-dashed p-4 text-left text-sm text-muted-foreground transition hover:border-primary/60 hover:bg-primary/5"><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4" className="sr-only" onChange={(event) => setEvidenceFile(event.target.files?.[0] ?? null)} /><span className="grid size-9 place-items-center rounded-lg bg-secondary"><ImagePlus className="size-4" /></span><span><strong className="block text-foreground">{evidenceFile ? evidenceFile.name : "Add photo or video"}</strong>{evidenceFile ? `${(evidenceFile.size / 1024 / 1024).toFixed(1)} MB selected` : "Optional evidence · maximum 10 MB"}</span></label>
               </div>
-              <DialogFooter><Button type="button" variant="ghost" onClick={() => resetDialog(false)}>Cancel</Button><Button type="submit">Analyse & report <Sparkles /></Button></DialogFooter>
+              <DialogFooter><Button type="button" variant="ghost" onClick={() => resetDialog(false)}>Cancel</Button><Button type="submit" disabled={submitting}>{submitting ? <><Clock3 className="animate-spin" /> Processing…</> : <>Analyse & report <Sparkles /></>}</Button></DialogFooter>
             </form>
           ) : (
             <div className="py-2">
               <DialogHeader>
                 <div className="mb-3 grid size-12 place-items-center rounded-full bg-primary/10 text-primary"><CheckCircle2 className="size-6" /></div>
                 <DialogTitle className="text-2xl">Issue understood</DialogTitle>
-                <DialogDescription>Your report has been linked to the city intelligence layer.</DialogDescription>
+              <DialogDescription>Your permanent tracking code is {submission?.complaint.trackingCode}.</DialogDescription>
               </DialogHeader>
               <div className="my-6 rounded-2xl border bg-background/40 p-5">
-                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-sky-300">Water infrastructure</p><h3 className="mt-1 text-lg font-bold">Pipeline leakage</h3></div><Badge className="bg-red-400/15 text-red-200">High severity</Badge></div>
-                <div className="mt-5 grid grid-cols-2 gap-3 text-sm"><div className="rounded-xl bg-secondary/70 p-3"><p className="text-xs text-muted-foreground">AI confidence</p><p className="mt-1 font-mono font-bold">94%</p></div><div className="rounded-xl bg-secondary/70 p-3"><p className="text-xs text-muted-foreground">Similar nearby</p><p className="mt-1 font-mono font-bold">13 reports</p></div></div>
-                <div className="mt-4 flex items-center gap-2 text-sm text-primary"><CircleDot className="size-4" /> Attached to emerging Sector 17 hotspot</div>
+                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-sky-300">{submission?.analysis.category} infrastructure</p><h3 className="mt-1 text-lg font-bold">{submission?.analysis.subcategory}</h3></div><Badge className={Number(submission?.analysis.severity) >= 7 ? "bg-red-400/15 text-red-200" : "bg-amber-300/15 text-amber-200"}>{Number(submission?.analysis.severity) >= 7 ? "High" : "Moderate"} severity</Badge></div>
+                <div className="mt-5 grid grid-cols-2 gap-3 text-sm"><div className="rounded-xl bg-secondary/70 p-3"><p className="text-xs text-muted-foreground">AI confidence</p><p className="mt-1 font-mono font-bold">{Math.round(Number(submission?.analysis.confidence) * 100)}%</p></div><div className="rounded-xl bg-secondary/70 p-3"><p className="text-xs text-muted-foreground">Similar nearby</p><p className="mt-1 font-mono font-bold">{submission?.analysis.similarReports ?? 0} reports</p></div></div>
+                <div className="mt-4 flex items-center gap-2 text-sm text-primary"><CircleDot className="size-4" /> Attached to the {submission?.hotspot.area} intelligence zone</div>
               </div>
-              <DialogFooter><Button onClick={() => resetDialog(false)} className="w-full">View report status</Button></DialogFooter>
+              <DialogFooter><Button onClick={() => resetDialog(false)} className="w-full">Done</Button></DialogFooter>
             </div>
           )}
         </DialogContent>
@@ -380,7 +465,7 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-              <SheetFooter className="border-t bg-background/20 p-6"><Button onClick={() => adoptIssue(selected.id)} disabled={adopted.includes(selected.id)} className="w-full">{adopted.includes(selected.id) ? <><CheckCircle2 /> Under investigation</> : <><Waves /> Investigate issue</>}</Button><Button variant="outline" className="w-full">View evidence</Button></SheetFooter>
+              <SheetFooter className="border-t bg-background/20 p-6"><Button onClick={() => adoptIssue(selected.id)} disabled={adopted.includes(selected.id)} className="w-full">{adopted.includes(selected.id) ? <><CheckCircle2 /> Under investigation</> : <><Waves /> Investigate issue</>}</Button></SheetFooter>
             </>
           )}
         </SheetContent>
