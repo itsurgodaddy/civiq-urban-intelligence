@@ -1,93 +1,66 @@
-# vinext-starter
+# CIVIQ — Urban Intelligence Layer
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+CIVIQ turns authenticated citizen reports into prioritized city hotspots and connects verified organizations with issues they can investigate.
 
-## Prerequisites
+## Live architecture
 
-- Node.js `>=22.13.0`
-- Linux with `flock`, `curl`, and GNU `timeout`
+- **Web application:** Vinext / React deployed with ChatGPT Sites
+- **Authentication:** Sign in with ChatGPT, handled by the Sites dispatcher
+- **Authorization:** server-side CIVIQ roles in D1 (`citizen`, `organization_pending`, `organization`, `admin`)
+- **Database:** Cloudflare D1 through the logical `DB` binding
+- **Evidence files:** Cloudflare R2 through the logical `BUCKET` binding
+- **Source identity:** `.openai/hosting.json` contains the opaque Sites project ID and binding names
 
-## Sites Lifecycle
+No CIVIQ password is stored. The platform provides a stable per-Site user ID, while CIVIQ controls what that identity may do.
 
-The Sites lifecycle CLI runs the locked dependency install before returning this checkout. Edit the source under `app/`, then checkpoint when a coherent milestone is ready to inspect or share. The remote Sites builder runs `npm run build` against the pushed commit. Do not repeat install or build as a normal pre-checkpoint step.
+## Access model
 
-This starter does not use `wrangler.jsonc`.
+| Surface or action | Anonymous | Citizen | Pending organization | Verified organization | Admin |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| View city map and hotspots | Yes | Yes | Yes | Yes | Yes |
+| Submit and track own reports | No | Yes | Yes | Yes | Yes |
+| Upload evidence | No | Yes | Yes | Yes | Yes |
+| Investigate/adopt an issue | No | No | No | Yes | Yes |
+| Open `/admin` controls | No | No | No | No | Yes |
+| Approve organizations and change zone status | No | No | No | No | Yes |
 
-`install:ci` is intentionally a single, non-retrying `npm ci`. It refuses a concurrent install for the same project, consumes a matching image-seeded npm cache with `--prefer-offline` while retaining registry fallback for a missing cache object, otherwise downloads and verifies the complete vinext tarball recorded in `package-lock.json`, limits npm to one socket, and terminates a stalled install. `build` applies a short timeout. These helpers target Linux and use GNU `timeout`; they are not native macOS scripts.
+## First owner setup
 
-Scripts that need writable project-scoped home, npm, XDG, and temporary paths use `scripts/sites-env.sh`. The `dev` and `start` scripts honor the caller's runtime environment and keep Wrangler logs inside the checkout. The generated `.sites-runtime/` directory is disposable and ignored by Git.
+1. Set the production `ADMIN_SETUP_TOKEN` as a secret in Sites.
+2. Deploy the version containing the role and admin migrations.
+3. Visit `/admin` and choose **Sign in with ChatGPT**.
+4. Enter the one-time owner setup key.
+5. The signed-in per-Site user ID becomes the sole CIVIQ administrator.
 
-## Included Shape
+The setup key is only a bootstrap secret. Daily owner access uses Sign in with ChatGPT. Never commit the key to Git.
 
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+## Organization onboarding
 
-## Workspace Auth Headers
+1. A user signs in and opens `/account`.
+2. They submit organization name, expertise, and operating region.
+3. Their role becomes `organization_pending`.
+4. The owner reviews the application in `/admin`.
+5. Approval changes the role to `organization`, enabling investigate/adopt actions.
 
-OpenAI workspace sites can read the current user's email from `oai-authenticated-user-email`.
+## Important routes
 
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
+- `/` — public intelligence map and authenticated citizen/organization workspace
+- `/account` — protected account and organization application page
+- `/admin` — protected owner dashboard and one-time owner claim
+- `/api/dashboard` — public map data plus the signed-in user's own reports
+- `/api/complaints` — authenticated report creation
+- `/api/evidence` — authenticated upload and opaque-key retrieval
+- `/api/organizations/apply` — authenticated organization application
+- `/api/hotspots/[id]/adopt` — verified organization/admin action
+- `/api/admin/*` — administrator-only data and mutation endpoints
 
-Treat the full name as optional and fall back to email when it is absent:
+## Local commands
 
-```tsx
-import { headers } from "next/headers";
+- `npm run install:ci` — install the locked dependency tree
+- `npm run lint` — lint application code
+- `npm test` — build and run the tests
+- `npm run db:generate` — generate Drizzle migrations after schema changes
 
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
+## Ownership notes
 
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Diagnostic Commands
-
-- `npm run install:ci`: perform the one bounded lockfile install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: start the built Vinext application
-- `npm test`: build and verify the rendered development-preview metadata
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-Use build commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
-
-The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+The Site owner controls publication and access through their ChatGPT account. D1 and R2 are managed Sites resources, so there is no separate database password or R2 access key to hand over. For infrastructure that is portable outside Sites, migrate the same schema and objects to a user-owned Cloudflare or Supabase account and update the server adapters.

@@ -1,4 +1,5 @@
 import { getD1 } from "@/db";
+import { getCurrentAccount } from "@/lib/authz";
 
 const seedHotspots = [
   [1, "Sector 17", "Water", "Probable pipeline leakage", 8.7, 37, 270, "Reported", "1.3 km", 50, 42],
@@ -19,12 +20,15 @@ async function seedDemoData() {
     INSERT OR IGNORE INTO organizations (id, name, expertise, operating_region)
     VALUES (1, 'JalSetu Foundation', 'Water,Pipeline Repair,Water Conservation', 'Delhi NCR')
   `));
+  statements.push(db.prepare(`UPDATE organizations SET verification_status = 'verified'
+    WHERE id = 1 AND owner_auth_user_id IS NULL`));
   await db.batch(statements);
 }
 
 export async function GET() {
   try {
     const db = getD1();
+    const identity = await getCurrentAccount();
     await seedDemoData();
     const [hotspotResult, complaintResult, statsResult] = await Promise.all([
       db.prepare(`SELECT id, area, category, issue, priority, report_count AS reports,
@@ -34,7 +38,9 @@ export async function GET() {
       db.prepare(`SELECT id, tracking_code AS trackingCode, description, location, category,
         subcategory, severity, confidence, status, hotspot_id AS hotspotId,
         evidence_key AS evidenceKey, created_at AS createdAt
-        FROM complaints ORDER BY created_at DESC, id DESC LIMIT 20`).all(),
+        FROM complaints WHERE reporter_auth_user_id = ?
+        ORDER BY created_at DESC, id DESC LIMIT 20`)
+        .bind(identity?.user.id ?? "__anonymous__").all(),
       db.prepare(`SELECT
         COALESCE(SUM(report_count), 0) AS activeReports,
         COALESCE(SUM(CASE WHEN priority >= 7 THEN 1 ELSE 0 END), 0) AS emergingZones,
@@ -46,6 +52,14 @@ export async function GET() {
     return Response.json({
       hotspots: hotspotResult.results,
       complaints: complaintResult.results,
+      viewer: identity?.account ? {
+        displayName: identity.account.displayName,
+        email: identity.account.email,
+        role: identity.account.role,
+        organizationId: identity.account.organizationId,
+        organizationName: identity.account.organizationName,
+        organizationStatus: identity.account.organizationStatus,
+      } : null,
       stats: statsResult,
       updatedAt: new Date().toISOString(),
     }, { headers: { "Cache-Control": "no-store" } });

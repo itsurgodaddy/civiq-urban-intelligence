@@ -5,7 +5,7 @@ import {
   Activity, AlertTriangle, ArrowUpRight, Building2, CheckCircle2,
   CircleDot, Clock3, Droplets, Gauge, ImagePlus,
   Layers3, Lightbulb, LocateFixed, Map as MapIcon, Navigation,
-  Plus, Radio, Route, Search, Send, ShieldCheck, Sparkles,
+  LogIn, Plus, Radio, Route, Search, Send, ShieldCheck, Sparkles,
   Trash2, UserRound, Waves, Wrench, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,15 @@ type Submission = {
   complaint: { trackingCode: string; description: string; location: string; status: string; hotspotId: number };
   analysis: { category: string; subcategory: string; severity: number; confidence: number; similarReports: number };
   hotspot: { id: number; area: string; category: string; issue: string; priority: number; reports: number; growth: number };
+};
+
+type Viewer = {
+  displayName: string;
+  email: string;
+  role: "citizen" | "organization_pending" | "organization" | "admin";
+  organizationId: number | null;
+  organizationName: string | null;
+  organizationStatus: string | null;
 };
 
 const fallbackHotspots: Hotspot[] = [
@@ -83,7 +92,7 @@ function PriorityBadge({ value }: { value: number }) {
 }
 
 function HotspotMap({ layer, hotspots, onSelect }: { layer: Layer; hotspots: Hotspot[]; onSelect: (h: Hotspot) => void }) {
-  const visible = useMemo(() => hotspots.filter((h) => layer === "All" || h.category === layer), [layer]);
+  const visible = useMemo(() => hotspots.filter((h) => layer === "All" || h.category === layer), [layer, hotspots]);
   return (
     <div className="map-grid relative min-h-[520px] w-full rounded-2xl border soft-ring" aria-label={`${layer} intelligence map`}>
       <div className="absolute left-[11%] top-[17%] z-[2] -rotate-12 text-xs font-semibold tracking-[.18em] text-slate-500">ROHINI</div>
@@ -139,6 +148,13 @@ function TrendBars() {
   );
 }
 
+function ReportAction({ signedIn, onOpen, className = "", compact = false }: { signedIn: boolean; onOpen: () => void; className?: string; compact?: boolean }) {
+  if (!signedIn) {
+    return <Button asChild className={className}><a href="/signin-with-chatgpt?return_to=%2F" target="_top"><LogIn className="size-4" /> {compact ? "Sign in" : "Sign in to report"}</a></Button>;
+  }
+  return <Button onClick={onOpen} className={className}><Plus className="size-4" /> {compact ? "Report" : "Report issue"}</Button>;
+}
+
 export default function Home() {
   const [layer, setLayer] = useState<Layer>("All");
   const [selected, setSelected] = useState<Hotspot | null>(null);
@@ -152,7 +168,9 @@ export default function Home() {
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [orgSearch, setOrgSearch] = useState("");
+  const [viewer, setViewer] = useState<Viewer | null | undefined>(undefined);
   const leadHotspot = hotspots[0] ?? fallbackHotspots[0];
+  const canInvestigate = viewer?.role === "organization" || viewer?.role === "admin";
 
   async function loadDashboard() {
     try {
@@ -167,6 +185,7 @@ export default function Home() {
       }));
       if (liveHotspots.length) setHotspots(liveHotspots);
       setComplaints(data.complaints ?? []);
+      setViewer(data.viewer ?? null);
       if (data.stats) setStats({
         activeReports: Number(data.stats.activeReports ?? 0),
         emergingZones: Number(data.stats.emergingZones ?? 0),
@@ -179,6 +198,7 @@ export default function Home() {
     }
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadDashboard(); }, []);
 
   async function submitReport(event: FormEvent<HTMLFormElement>) {
@@ -253,10 +273,10 @@ export default function Home() {
             <div className="hidden items-center gap-2 rounded-full border px-3 py-2 text-xs text-muted-foreground md:flex">
               <LocateFixed className="size-3.5 text-primary" /> Delhi · Live
             </div>
-            <Button onClick={() => resetDialog(true)} className="rounded-full px-4 font-bold">
-              <Plus className="size-4" /> Report issue
-            </Button>
-            <Badge variant="secondary" className="hidden rounded-full px-3 py-2 sm:inline-flex">Public beta</Badge>
+            <ReportAction signedIn={!!viewer} onOpen={() => resetDialog(true)} compact className="rounded-full px-4 font-bold sm:hidden" />
+            <ReportAction signedIn={!!viewer} onOpen={() => resetDialog(true)} className="hidden rounded-full px-4 font-bold sm:inline-flex" />
+            {viewer ? <Button asChild variant="outline" className="hidden rounded-full md:inline-flex"><a href="/account"><UserRound /> {viewer.role === "admin" ? "Owner" : "Account"}</a></Button> : <Badge variant="secondary" className="hidden rounded-full px-3 py-2 sm:inline-flex">Public beta</Badge>}
+            {viewer?.role === "admin" && <Button asChild variant="secondary" className="hidden rounded-full lg:inline-flex"><a href="/admin"><ShieldCheck /> Admin</a></Button>}
           </div>
         </div>
       </div>
@@ -346,15 +366,15 @@ export default function Home() {
         <TabsContent value="citizen" className="p-4 sm:p-6">
           <div className="mx-auto max-w-6xl">
             <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-              <div><p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-primary">Citizen workspace</p><h1 className="text-3xl font-black tracking-tight">Recent reports, clearly tracked.</h1><p className="mt-2 text-muted-foreground">No departments or complicated categories—describe the problem and we route it.</p></div>
-              <Button onClick={() => resetDialog(true)}><Plus /> Report a new issue</Button>
+              <div><p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-primary">Citizen workspace</p><h1 className="text-3xl font-black tracking-tight">Your reports, clearly tracked.</h1><p className="mt-2 text-muted-foreground">No departments or complicated categories—describe the problem and we route it.</p></div>
+              <ReportAction signedIn={!!viewer} onOpen={() => resetDialog(true)} className="self-start" />
             </div>
             <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
               <section className="space-y-3">
                 {complaints.length === 0 ? (
                   <Empty className="min-h-72 rounded-2xl border bg-card/75">
-                    <EmptyHeader><EmptyMedia variant="icon"><Send /></EmptyMedia><EmptyTitle>No public reports yet</EmptyTitle><EmptyDescription>Submit the first live report. It will be classified, saved, and connected to the city map.</EmptyDescription></EmptyHeader>
-                    <EmptyContent><Button onClick={() => resetDialog(true)}><Plus /> Report an issue</Button></EmptyContent>
+                    <EmptyHeader><EmptyMedia variant="icon"><Send /></EmptyMedia><EmptyTitle>{viewer ? "You have no reports yet" : "Sign in to report an issue"}</EmptyTitle><EmptyDescription>{viewer ? "Your first report will be classified, saved, and connected to the city map." : "Authentication keeps every report attributable and lets you track its status privately."}</EmptyDescription></EmptyHeader>
+                    <EmptyContent><ReportAction signedIn={!!viewer} onOpen={() => resetDialog(true)} /></EmptyContent>
                   </Empty>
                 ) : complaints.map((report) => (
                   <article key={report.id} className="rounded-2xl border bg-card/75 p-5 soft-ring">
@@ -384,9 +404,12 @@ export default function Home() {
         <TabsContent value="organizations" className="p-4 sm:p-6">
           <div className="mx-auto max-w-6xl">
             <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-              <div><p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-primary">Matched for JalSetu Foundation</p><h1 className="text-3xl font-black tracking-tight">Relevant problems, ranked.</h1><p className="mt-2 text-muted-foreground">Water infrastructure opportunities within your Delhi NCR operating area.</p></div>
+              <div><p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-primary">{viewer?.organizationName ? `Matched for ${viewer.organizationName}` : "Organization workspace"}</p><h1 className="text-3xl font-black tracking-tight">Relevant problems, ranked.</h1><p className="mt-2 text-muted-foreground">Verified organizations can investigate civic opportunities in their operating area.</p></div>
               <div className="relative max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={orgSearch} onChange={(event) => setOrgSearch(event.target.value)} className="pl-9" placeholder="Search area or issue" /></div>
             </div>
+            {!viewer && <div className="mb-5 flex flex-col justify-between gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-5 sm:flex-row sm:items-center"><div><p className="font-bold">Organization access is protected</p><p className="mt-1 text-sm text-muted-foreground">Sign in, apply with your organization details, and wait for owner verification.</p></div><Button asChild><a href="/signin-with-chatgpt?return_to=%2Faccount" target="_top"><LogIn /> Sign in as organization</a></Button></div>}
+            {viewer?.role === "citizen" && <div className="mb-5 flex flex-col justify-between gap-4 rounded-2xl border bg-card/75 p-5 sm:flex-row sm:items-center"><div><p className="font-bold">Want to act as an organization?</p><p className="mt-1 text-sm text-muted-foreground">Submit your profile for owner verification first.</p></div><Button asChild variant="outline"><a href="/account"><Building2 /> Apply now</a></Button></div>}
+            {viewer?.role === "organization_pending" && <div className="mb-5 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-5"><p className="font-bold text-amber-100">Verification pending</p><p className="mt-1 text-sm text-muted-foreground">The CIVIQ owner must approve your organization before you can investigate issues.</p></div>}
             <section className="grid gap-4">
               {hotspots.filter((h) => (h.category === "Water" || h.id === 2) && `${h.area} ${h.issue}`.toLowerCase().includes(orgSearch.toLowerCase())).map((h, index) => {
                 const Icon = layerConfig[h.category].icon;
@@ -400,7 +423,7 @@ export default function Home() {
                       <p className="mt-1 text-sm text-muted-foreground">{h.reports} reports · +{h.growth}% in 24h · Active for {h.since}</p>
                       <div className="mt-3 flex items-center gap-2 text-xs text-primary"><ShieldCheck className="size-3.5" /> {h.category === "Water" ? "94% expertise match" : "68% regional match"}</div>
                     </div>
-                    <div className="flex gap-2 md:justify-end"><Button variant="outline" onClick={() => setSelected(h)}>Review</Button><Button disabled={isAdopted} onClick={() => adoptIssue(h.id)}>{isAdopted ? <><CheckCircle2 /> Adopted</> : <>Investigate <ArrowUpRight /></>}</Button></div>
+                    <div className="flex gap-2 md:justify-end"><Button variant="outline" onClick={() => setSelected(h)}>Review</Button>{canInvestigate ? <Button disabled={isAdopted} onClick={() => adoptIssue(h.id)}>{isAdopted ? <><CheckCircle2 /> Adopted</> : <>Investigate <ArrowUpRight /></>}</Button> : <Button asChild variant="secondary"><a href={viewer ? "/account" : "/signin-with-chatgpt?return_to=%2Faccount"} target={viewer ? undefined : "_top"}>{viewer?.role === "organization_pending" ? "Pending approval" : viewer ? "Apply to act" : "Sign in to act"}</a></Button>}</div>
                   </article>
                 );
               })}
@@ -465,7 +488,7 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-              <SheetFooter className="border-t bg-background/20 p-6"><Button onClick={() => adoptIssue(selected.id)} disabled={adopted.includes(selected.id)} className="w-full">{adopted.includes(selected.id) ? <><CheckCircle2 /> Under investigation</> : <><Waves /> Investigate issue</>}</Button></SheetFooter>
+              <SheetFooter className="border-t bg-background/20 p-6">{canInvestigate ? <Button onClick={() => adoptIssue(selected.id)} disabled={adopted.includes(selected.id)} className="w-full">{adopted.includes(selected.id) ? <><CheckCircle2 /> Under investigation</> : <><Waves /> Investigate issue</>}</Button> : <Button asChild className="w-full"><a href={viewer ? "/account" : "/signin-with-chatgpt?return_to=%2Faccount"} target={viewer ? undefined : "_top"}>{viewer?.role === "organization_pending" ? "Organization approval pending" : viewer ? "Apply as an organization" : "Sign in to investigate"}</a></Button>}</SheetFooter>
             </>
           )}
         </SheetContent>

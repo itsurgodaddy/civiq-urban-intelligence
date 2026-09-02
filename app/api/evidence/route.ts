@@ -1,9 +1,13 @@
 import { env } from "cloudflare:workers";
+import { getCurrentAccount, unauthorized } from "@/lib/authz";
 
 const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp", "video/mp4"]);
 
 export async function POST(request: Request) {
   try {
+    const identity = await getCurrentAccount();
+    if (!identity?.account) return unauthorized("Sign in before uploading evidence.");
+
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) return Response.json({ error: "Choose an evidence file." }, { status: 400 });

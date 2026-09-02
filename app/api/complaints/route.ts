@@ -1,5 +1,6 @@
 import { getD1 } from "@/db";
 import { areaFromLocation, calculatePriority, classifyIssue, issueFor, positionFromText, trackingCode } from "@/lib/civic";
+import { getCurrentAccount, unauthorized } from "@/lib/authz";
 
 type ComplaintPayload = {
   description?: string;
@@ -11,6 +12,9 @@ type ComplaintPayload = {
 
 export async function POST(request: Request) {
   try {
+    const identity = await getCurrentAccount();
+    if (!identity?.account) return unauthorized("Sign in as a citizen to report an issue.");
+
     const payload = await request.json() as ComplaintPayload;
     const description = payload.description?.trim() ?? "";
     const location = payload.location?.trim() ?? "";
@@ -64,11 +68,11 @@ export async function POST(request: Request) {
     const code = trackingCode();
     await db.prepare(`INSERT INTO complaints
       (tracking_code, description, location, latitude, longitude, category, subcategory,
-       severity, confidence, status, hotspot_id, evidence_key)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Reported', ?, ?)`)
+       severity, confidence, status, hotspot_id, reporter_auth_user_id, evidence_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Reported', ?, ?, ?)`)
       .bind(code, description, location, payload.latitude ?? null, payload.longitude ?? null,
         analysis.category, analysis.subcategory, analysis.severity, analysis.confidence,
-        hotspotId, payload.evidenceKey ?? null).run();
+        hotspotId, identity.user.id, payload.evidenceKey ?? null).run();
 
     return Response.json({
       complaint: { trackingCode: code, description, location, status: "Reported", hotspotId },
