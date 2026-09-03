@@ -114,6 +114,7 @@ button, input, textarea { font: inherit; }
 }
 .civiq-map .maplibregl-ctrl-attrib a { color: #89dcb9; }
 .map-priority-marker {
+  z-index: 8;
   display: grid;
   width: 2.75rem;
   height: 2.75rem;
