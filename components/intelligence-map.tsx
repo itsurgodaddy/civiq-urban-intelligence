@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cellToBoundary, isValidCell, latLngToCell } from "h3-js";
 import { Crosshair, Hexagon, Radio } from "lucide-react";
 
@@ -30,31 +30,17 @@ const zoneColors: Record<GeographicHotspot["category"], string> = {
   Electricity: "#ffbd59",
 };
 
-function zoneCollection(hotspots: GeographicHotspot[]) {
-  return {
-    type: "FeatureCollection" as const,
-    features: hotspots.map((hotspot) => {
-      const cell = isValidCell(hotspot.h3Cell)
-        ? hotspot.h3Cell
-        : latLngToCell(hotspot.latitude, hotspot.longitude, 8);
-      const boundary = cellToBoundary(cell, true) as Array<[number, number]>;
-      return {
-        type: "Feature" as const,
-        properties: {
-          id: hotspot.id,
-          category: hotspot.category,
-          priority: hotspot.priority,
-          reports: hotspot.reports,
-          area: hotspot.area,
-        },
-        geometry: {
-          type: "Polygon" as const,
-          coordinates: [boundary],
-        },
-      };
-    }),
-  };
+function zoneBoundary(hotspot: GeographicHotspot) {
+  const cell = isValidCell(hotspot.h3Cell)
+    ? hotspot.h3Cell
+    : latLngToCell(hotspot.latitude, hotspot.longitude, 8);
+  return cellToBoundary(cell, true) as Array<[number, number]>;
 }
+
+type ProjectedZone = {
+  hotspot: GeographicHotspot;
+  points: string;
+};
 
 export function IntelligenceMap({ hotspots, selectedId, onSelect }: IntelligenceMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -63,9 +49,10 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
   const markersRef = useRef<Array<import("maplibre-gl").Marker>>([]);
   const hotspotsRef = useRef(hotspots);
   const selectRef = useRef(onSelect);
+  const projectZonesRef = useRef<() => void>(() => undefined);
   const [ready, setReady] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
-  const geoJson = useMemo(() => zoneCollection(hotspots), [hotspots]);
+  const [projectedZones, setProjectedZones] = useState<ProjectedZone[]>([]);
 
   useEffect(() => { hotspotsRef.current = hotspots; }, [hotspots]);
   useEffect(() => { selectRef.current = onSelect; }, [onSelect]);
@@ -118,57 +105,34 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
         showAccuracyCircle: true,
       }), "top-right");
 
+      let projectionFrame = 0;
+      const projectZones = () => {
+        window.cancelAnimationFrame(projectionFrame);
+        projectionFrame = window.requestAnimationFrame(() => {
+          if (disposed) return;
+          setProjectedZones(hotspotsRef.current.map((hotspot) => ({
+            hotspot,
+            points: zoneBoundary(hotspot).map(([longitude, latitude]) => {
+              const point = map.project([longitude, latitude]);
+              return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+            }).join(" "),
+          })));
+        });
+      };
+      projectZonesRef.current = projectZones;
+
       map.once("load", () => {
         if (disposed) return;
-        map.addSource("civiq-zones", { type: "geojson", data: zoneCollection(hotspotsRef.current) });
-        map.addLayer({
-          id: "civiq-zone-fill",
-          type: "fill",
-          source: "civiq-zones",
-          paint: {
-            "fill-color": [
-              "match", ["get", "category"],
-              "Water", zoneColors.Water,
-              "Roads", zoneColors.Roads,
-              "Waste", zoneColors.Waste,
-              "Electricity", zoneColors.Electricity,
-              "#8ca49d",
-            ],
-            "fill-opacity": ["interpolate", ["linear"], ["get", "priority"], 0, 0.18, 5, 0.35, 8, 0.58, 10, 0.78],
-          },
-        });
-        map.addLayer({
-          id: "civiq-zone-outline",
-          type: "line",
-          source: "civiq-zones",
-          paint: {
-            "line-color": [
-              "match", ["get", "category"],
-              "Water", zoneColors.Water,
-              "Roads", zoneColors.Roads,
-              "Waste", zoneColors.Waste,
-              "Electricity", zoneColors.Electricity,
-              "#d7e6e1",
-            ],
-            "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 14, 2.5],
-            "line-opacity": 0.95,
-          },
-        });
-
-        map.on("mouseenter", "civiq-zone-fill", () => { map.getCanvas().style.cursor = "pointer"; });
-        map.on("mouseleave", "civiq-zone-fill", () => { map.getCanvas().style.cursor = ""; });
-        map.on("click", "civiq-zone-fill", (event) => {
-          const id = Number(event.features?.[0]?.properties?.id);
-          const hotspot = hotspotsRef.current.find((item) => item.id === id);
-          if (hotspot) selectRef.current(hotspot);
-        });
+        projectZones();
+        map.on("move", projectZones);
+        map.on("resize", projectZones);
         setReady(true);
       });
-      map.once("error", () => setMapUnavailable(true));
     }).catch(() => setMapUnavailable(true));
 
     return () => {
       disposed = true;
+      projectZonesRef.current = () => undefined;
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
       mapRef.current?.remove();
@@ -180,9 +144,7 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
     const map = mapRef.current;
     const maplibregl = mapLibraryRef.current;
     if (!map || !maplibregl || !ready) return;
-
-    const source = map.getSource("civiq-zones") as import("maplibre-gl").GeoJSONSource | undefined;
-    source?.setData(geoJson);
+    projectZonesRef.current();
 
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = hotspots.map((hotspot) => {
@@ -202,7 +164,7 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
         .setLngLat([hotspot.longitude, hotspot.latitude])
         .addTo(map);
     });
-  }, [geoJson, hotspots, ready, selectedId]);
+  }, [hotspots, ready, selectedId]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -214,6 +176,44 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
   return (
     <div className="civiq-map-shell relative min-h-[540px] overflow-hidden rounded-2xl border bg-[#091513] soft-ring">
       <div ref={containerRef} className="civiq-map absolute inset-0" aria-label="Interactive Delhi civic intelligence map" />
+
+      {ready && (
+        <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full" aria-label={`${projectedZones.length} visible H3 priority zones`}>
+          {projectedZones.map(({ hotspot, points }) => {
+            const color = zoneColors[hotspot.category];
+            const selected = hotspot.id === selectedId;
+            const fillOpacity = Math.min(0.72, 0.28 + hotspot.priority * 0.045);
+            return (
+              <polygon
+                key={hotspot.id}
+                points={points}
+                fill={color}
+                fillOpacity={fillOpacity}
+                stroke={selected ? "#ffffff" : color}
+                strokeWidth={selected ? 4 : 2.5}
+                strokeLinejoin="round"
+                className="pointer-events-auto cursor-pointer transition-[fill-opacity,filter] duration-200 hover:fill-opacity-90"
+                style={{ filter: selected ? `drop-shadow(0 0 12px ${color})` : `drop-shadow(0 0 5px ${color}99)` }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  selectRef.current(hotspot);
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${hotspot.area} ${hotspot.category} H3 zone`}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    selectRef.current(hotspot);
+                  }
+                }}
+              >
+                <title>{`${hotspot.area}: ${hotspot.issue}, priority ${hotspot.priority.toFixed(1)}`}</title>
+              </polygon>
+            );
+          })}
+        </svg>
+      )}
 
       {!ready && !mapUnavailable && (
         <div className="absolute inset-0 z-10 grid place-items-center bg-[#091513] text-sm text-muted-foreground">
@@ -231,7 +231,7 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
           <Radio className="size-3 text-primary" /> Live Delhi layer
         </span>
         <span className="inline-flex items-center gap-2 rounded-full border bg-[#07100f]/92 px-3 py-2 text-xs font-semibold text-slate-200 backdrop-blur">
-          <Hexagon className="size-3 text-primary" /> H3 resolution 8
+          <Hexagon className="size-3 text-primary" /> H3 resolution 8 · {projectedZones.length} zones
         </span>
       </div>
 
