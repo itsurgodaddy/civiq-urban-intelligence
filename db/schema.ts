@@ -11,14 +11,18 @@ export const hotspots = sqliteTable("hotspots", {
   growth: integer("growth").notNull().default(0),
   status: text("status").notNull().default("Reported"),
   radius: text("radius").notNull().default("0.3 km"),
+  h3Cell: text("h3_cell"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
   positionLeft: integer("position_left").notNull().default(50),
   positionTop: integer("position_top").notNull().default(50),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
-  uniqueIndex("idx_hotspots_area_category").on(table.area, table.category),
+  index("idx_hotspots_area_category").on(table.area, table.category),
   index("idx_hotspots_priority").on(table.priority),
   index("idx_hotspots_status").on(table.status),
+  index("idx_hotspots_h3_category").on(table.h3Cell, table.category),
 ]);
 
 export const complaints = sqliteTable("complaints", {
@@ -28,6 +32,7 @@ export const complaints = sqliteTable("complaints", {
   location: text("location").notNull(),
   latitude: real("latitude"),
   longitude: real("longitude"),
+  h3Cell: text("h3_cell"),
   category: text("category").notNull(),
   subcategory: text("subcategory").notNull(),
   severity: real("severity").notNull(),
@@ -43,6 +48,7 @@ export const complaints = sqliteTable("complaints", {
   index("idx_complaints_created_at").on(table.createdAt),
   index("idx_complaints_status").on(table.status),
   index("idx_complaints_reporter").on(table.reporterAuthUserId),
+  index("idx_complaints_h3_category").on(table.h3Cell, table.category),
 ]);
 
 export const organizations = sqliteTable("organizations", {

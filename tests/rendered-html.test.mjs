@@ -14,3 +14,13 @@ test("declares the persistent database and evidence storage", async () => {
   assert.equal(manifest.d1, "DB");
   assert.equal(manifest.r2, "BUCKET");
 });
+
+test("ships the Version 4 MapLibre and H3 intelligence layer", async () => {
+  const map = await readFile(new URL("../components/intelligence-map.tsx", import.meta.url), "utf8");
+  const geo = await readFile(new URL("../lib/geo.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  assert.match(map, /maplibre-gl/);
+  assert.match(map, /cellToBoundary/);
+  assert.match(geo, /latLngToCell/);
+  assert.match(schema, /h3_cell/);
+});

@@ -1,21 +1,31 @@
 import { getD1 } from "@/db";
 import { getCurrentAccount } from "@/lib/authz";
+import { h3CellFor } from "@/lib/geo";
 
 const seedHotspots = [
-  [1, "Sector 17", "Water", "Probable pipeline leakage", 8.7, 37, 270, "Reported", "1.3 km", 50, 42],
-  [2, "Sector 24", "Roads", "Recurring road damage", 7.1, 22, 84, "Reported", "0.8 km", 69, 58],
-  [3, "Model Town", "Waste", "Uncollected solid waste", 6.4, 19, 41, "Reported", "0.6 km", 30, 62],
-  [4, "Rithala", "Electricity", "Streetlight outage cluster", 4.9, 11, 18, "Reported", "0.4 km", 62, 24],
-  [5, "Sector 11", "Water", "Low water pressure", 4.3, 8, 12, "Reported", "0.3 km", 35, 30],
+  { id: 1, area: "Sector 17", category: "Water", issue: "Probable pipeline leakage", priority: 8.7, reports: 37, growth: 270, status: "Reported", radius: "1.3 km", positionLeft: 50, positionTop: 42, latitude: 28.7407, longitude: 77.1136 },
+  { id: 2, area: "Sector 24", category: "Roads", issue: "Recurring road damage", priority: 7.1, reports: 22, growth: 84, status: "Reported", radius: "0.8 km", positionLeft: 69, positionTop: 58, latitude: 28.7242, longitude: 77.0895 },
+  { id: 3, area: "Model Town", category: "Waste", issue: "Uncollected solid waste", priority: 6.4, reports: 19, growth: 41, status: "Reported", radius: "0.6 km", positionLeft: 30, positionTop: 62, latitude: 28.7029, longitude: 77.1912 },
+  { id: 4, area: "Rithala", category: "Electricity", issue: "Streetlight outage cluster", priority: 4.9, reports: 11, growth: 18, status: "Reported", radius: "0.4 km", positionLeft: 62, positionTop: 24, latitude: 28.7208, longitude: 77.107 },
+  { id: 5, area: "Sector 11", category: "Water", issue: "Low water pressure", priority: 4.3, reports: 8, growth: 12, status: "Reported", radius: "0.3 km", positionLeft: 35, positionTop: 30, latitude: 28.7312, longitude: 77.1212 },
 ] as const;
 
 async function seedDemoData() {
   const db = getD1();
-  const statements = seedHotspots.map((row) => db.prepare(`
-    INSERT OR IGNORE INTO hotspots
-      (id, area, category, issue, priority, report_count, growth, status, radius, position_left, position_top)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(...row));
+  const statements = seedHotspots.flatMap((row) => {
+    const h3Cell = h3CellFor(row);
+    return [
+      db.prepare(`INSERT OR IGNORE INTO hotspots
+        (id, area, category, issue, priority, report_count, growth, status, radius,
+         position_left, position_top, h3_cell, latitude, longitude)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(row.id, row.area, row.category, row.issue, row.priority, row.reports, row.growth,
+          row.status, row.radius, row.positionLeft, row.positionTop, h3Cell, row.latitude, row.longitude),
+      db.prepare(`UPDATE hotspots SET h3_cell = ?, latitude = ?, longitude = ?
+        WHERE id = ? AND (h3_cell IS NULL OR latitude IS NULL OR longitude IS NULL)`)
+        .bind(h3Cell, row.latitude, row.longitude, row.id),
+    ];
+  });
   statements.push(db.prepare(`
     INSERT OR IGNORE INTO organizations (id, name, expertise, operating_region)
     VALUES (1, 'JalSetu Foundation', 'Water,Pipeline Repair,Water Conservation', 'Delhi NCR')
@@ -32,12 +42,13 @@ export async function GET() {
     await seedDemoData();
     const [hotspotResult, complaintResult, statsResult] = await Promise.all([
       db.prepare(`SELECT id, area, category, issue, priority, report_count AS reports,
-        growth, status, radius, position_left AS positionLeft, position_top AS positionTop,
+        growth, status, radius, h3_cell AS h3Cell, latitude, longitude,
+        position_left AS positionLeft, position_top AS positionTop,
         created_at AS createdAt, updated_at AS updatedAt
         FROM hotspots ORDER BY priority DESC, report_count DESC LIMIT 50`).all(),
       db.prepare(`SELECT id, tracking_code AS trackingCode, description, location, category,
         subcategory, severity, confidence, status, hotspot_id AS hotspotId,
-        evidence_key AS evidenceKey, created_at AS createdAt
+        h3_cell AS h3Cell, latitude, longitude, evidence_key AS evidenceKey, created_at AS createdAt
         FROM complaints WHERE reporter_auth_user_id = ?
         ORDER BY created_at DESC, id DESC LIMIT 20`)
         .bind(identity?.user.id ?? "__anonymous__").all(),

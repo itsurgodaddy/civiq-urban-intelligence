@@ -25,24 +25,26 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
+import { IntelligenceMap } from "@/components/intelligence-map";
 
 type Layer = "All" | "Water" | "Roads" | "Waste" | "Electricity";
 type Hotspot = {
   id: number; area: string; category: Exclude<Layer, "All">; issue: string;
   priority: number; reports: number; growth: number; since: string;
-  radius: string; status?: string; position: { left: string; top: string };
+  radius: string; status?: string; latitude: number; longitude: number; h3Cell: string;
 };
 
 type Complaint = {
   id: number; trackingCode: string; description: string; location: string;
   category: string; subcategory: string; severity: number; confidence: number;
   status: string; hotspotId: number; evidenceKey?: string | null; createdAt: string;
+  latitude?: number | null; longitude?: number | null; h3Cell?: string | null;
 };
 
 type Submission = {
-  complaint: { trackingCode: string; description: string; location: string; status: string; hotspotId: number };
+  complaint: { trackingCode: string; description: string; location: string; status: string; hotspotId: number; latitude: number; longitude: number; h3Cell: string; locationSource: string };
   analysis: { category: string; subcategory: string; severity: number; confidence: number; similarReports: number };
-  hotspot: { id: number; area: string; category: string; issue: string; priority: number; reports: number; growth: number };
+  hotspot: { id: number; area: string; category: string; issue: string; priority: number; reports: number; growth: number; latitude: number; longitude: number; h3Cell: string };
 };
 
 type Viewer = {
@@ -55,11 +57,11 @@ type Viewer = {
 };
 
 const fallbackHotspots: Hotspot[] = [
-  { id: 1, area: "Sector 17", category: "Water", issue: "Probable pipeline leakage", priority: 8.7, reports: 37, growth: 270, since: "3 days", radius: "1.3 km", position: { left: "50%", top: "42%" } },
-  { id: 2, area: "Sector 24", category: "Roads", issue: "Recurring road damage", priority: 7.1, reports: 22, growth: 84, since: "8 days", radius: "0.8 km", position: { left: "69%", top: "58%" } },
-  { id: 3, area: "Model Town", category: "Waste", issue: "Uncollected solid waste", priority: 6.4, reports: 19, growth: 41, since: "5 days", radius: "0.6 km", position: { left: "30%", top: "62%" } },
-  { id: 4, area: "Rithala", category: "Electricity", issue: "Streetlight outage cluster", priority: 4.9, reports: 11, growth: 18, since: "2 days", radius: "0.4 km", position: { left: "62%", top: "24%" } },
-  { id: 5, area: "Sector 11", category: "Water", issue: "Low water pressure", priority: 4.3, reports: 8, growth: 12, since: "2 days", radius: "0.3 km", position: { left: "35%", top: "30%" } },
+  { id: 1, area: "Sector 17", category: "Water", issue: "Probable pipeline leakage", priority: 8.7, reports: 37, growth: 270, since: "3 days", radius: "1.3 km", latitude: 28.7407, longitude: 77.1136, h3Cell: "883da18ea3fffff" },
+  { id: 2, area: "Sector 24", category: "Roads", issue: "Recurring road damage", priority: 7.1, reports: 22, growth: 84, since: "8 days", radius: "0.8 km", latitude: 28.7242, longitude: 77.0895, h3Cell: "883da18c1dfffff" },
+  { id: 3, area: "Model Town", category: "Waste", issue: "Uncollected solid waste", priority: 6.4, reports: 19, growth: 41, since: "5 days", radius: "0.6 km", latitude: 28.7029, longitude: 77.1912, h3Cell: "883da1165bfffff" },
+  { id: 4, area: "Rithala", category: "Electricity", issue: "Streetlight outage cluster", priority: 4.9, reports: 11, growth: 18, since: "2 days", radius: "0.4 km", latitude: 28.7208, longitude: 77.107, h3Cell: "883da18c13fffff" },
+  { id: 5, area: "Sector 11", category: "Water", issue: "Low water pressure", priority: 4.3, reports: 8, growth: 12, since: "2 days", radius: "0.3 km", latitude: 28.7312, longitude: 77.1212, h3Cell: "883da18cc1fffff" },
 ];
 
 const layerConfig = {
@@ -91,52 +93,6 @@ function PriorityBadge({ value }: { value: number }) {
   return <Badge variant="outline" className={`${tone} font-mono`}>{value.toFixed(1)} priority</Badge>;
 }
 
-function HotspotMap({ layer, hotspots, onSelect }: { layer: Layer; hotspots: Hotspot[]; onSelect: (h: Hotspot) => void }) {
-  const visible = useMemo(() => hotspots.filter((h) => layer === "All" || h.category === layer), [layer, hotspots]);
-  return (
-    <div className="map-grid relative min-h-[520px] w-full rounded-2xl border soft-ring" aria-label={`${layer} intelligence map`}>
-      <div className="absolute left-[11%] top-[17%] z-[2] -rotate-12 text-xs font-semibold tracking-[.18em] text-slate-500">ROHINI</div>
-      <div className="absolute bottom-[19%] right-[12%] z-[2] rotate-6 text-xs font-semibold tracking-[.18em] text-slate-500">PITAMPURA</div>
-      <div className="absolute left-[7%] top-1/2 z-[2] h-[5px] w-[88%] -rotate-6 rounded-full border-y border-slate-600/20 bg-slate-600/15" />
-      <div className="absolute left-[43%] top-[7%] z-[2] h-[88%] w-[4px] rotate-12 rounded-full border-x border-slate-600/20 bg-slate-600/15" />
-
-      {visible.map((h) => {
-        const config = layerConfig[h.category];
-        const size = 62 + h.priority * 5;
-        return (
-          <button
-            key={h.id}
-            onClick={() => onSelect(h)}
-            className="hex absolute z-10 grid place-items-center border-0 outline-none focus-visible:ring-2 focus-visible:ring-white"
-            style={{
-              left: h.position.left, top: h.position.top, width: size, height: size,
-              transform: "translate(-50%, -50%)",
-              background: `radial-gradient(circle at 50% 45%, ${config.color}, ${config.soft})`,
-              boxShadow: `0 0 ${Math.round(h.priority * 5)}px ${config.soft}`,
-            }}
-            aria-label={`Open ${h.area} ${h.category} hotspot`}
-          >
-            <span className="font-mono text-sm font-black text-white drop-shadow-md">{h.priority.toFixed(1)}</span>
-          </button>
-        );
-      })}
-
-      <div className="absolute bottom-4 left-4 z-20 rounded-xl border bg-[#091411]/90 p-3 backdrop-blur">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Priority</p>
-        <div className="flex items-center gap-2 text-xs text-slate-300">
-          <span>Low</span>
-          <div className="h-2 w-24 rounded-full bg-gradient-to-r from-sky-400/25 via-sky-400 to-red-400" />
-          <span>Critical</span>
-        </div>
-      </div>
-      <div className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-full border bg-[#091411]/90 px-3 py-2 text-xs text-slate-300 backdrop-blur">
-        <Radio className="size-3 animate-pulse text-primary" /> Live intelligence
-      </div>
-      <div className="scanline absolute inset-x-0 top-1/2 z-[3] h-px opacity-50" />
-    </div>
-  );
-}
-
 function TrendBars() {
   const max = Math.max(...zoneTrend);
   return (
@@ -166,10 +122,13 @@ export default function Home() {
   const [stats, setStats] = useState({ activeReports: 97, emergingZones: 2, underAction: 0, resolvedZones: 0 });
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [reportCoordinates, setReportCoordinates] = useState<{ latitude: number; longitude: number; accuracy: number } | null>(null);
+  const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [orgSearch, setOrgSearch] = useState("");
   const [viewer, setViewer] = useState<Viewer | null | undefined>(undefined);
-  const leadHotspot = hotspots[0] ?? fallbackHotspots[0];
+  const visibleHotspots = useMemo(() => hotspots.filter((hotspot) => layer === "All" || hotspot.category === layer), [hotspots, layer]);
+  const leadHotspot = visibleHotspots[0] ?? hotspots[0] ?? fallbackHotspots[0];
   const canInvestigate = viewer?.role === "organization" || viewer?.role === "admin";
 
   async function loadDashboard() {
@@ -177,12 +136,20 @@ export default function Home() {
       const response = await fetch("/api/dashboard", { cache: "no-store" });
       if (!response.ok) throw new Error("City data is temporarily unavailable.");
       const data = await response.json();
-      const liveHotspots = (data.hotspots as Array<Record<string, unknown>>).map((item) => ({
-        id: Number(item.id), area: String(item.area), category: String(item.category) as Hotspot["category"],
-        issue: String(item.issue), priority: Number(item.priority), reports: Number(item.reports),
-        growth: Number(item.growth), radius: String(item.radius), status: String(item.status),
-        since: "Live", position: { left: `${Number(item.positionLeft)}%`, top: `${Number(item.positionTop)}%` },
-      }));
+      const liveHotspots = (data.hotspots as Array<Record<string, unknown>>).map((item) => {
+        const fallback = fallbackHotspots.find((hotspot) => hotspot.id === Number(item.id)) ?? fallbackHotspots[0];
+        const latitude = Number(item.latitude);
+        const longitude = Number(item.longitude);
+        return {
+          id: Number(item.id), area: String(item.area), category: String(item.category) as Hotspot["category"],
+          issue: String(item.issue), priority: Number(item.priority), reports: Number(item.reports),
+          growth: Number(item.growth), radius: String(item.radius), status: String(item.status),
+          since: "Live",
+          latitude: Number.isFinite(latitude) ? latitude : fallback.latitude,
+          longitude: Number.isFinite(longitude) ? longitude : fallback.longitude,
+          h3Cell: typeof item.h3Cell === "string" && item.h3Cell ? item.h3Cell : fallback.h3Cell,
+        };
+      });
       if (liveHotspots.length) setHotspots(liveHotspots);
       setComplaints(data.complaints ?? []);
       setViewer(data.viewer ?? null);
@@ -221,6 +188,8 @@ export default function Home() {
         body: JSON.stringify({
           description: form.get("description"),
           location: form.get("location"),
+          latitude: reportCoordinates?.latitude,
+          longitude: reportCoordinates?.longitude,
           evidenceKey,
         }),
       });
@@ -250,9 +219,33 @@ export default function Home() {
     }
   }
 
+  function captureReportLocation() {
+    if (!navigator.geolocation) {
+      toast.error("GPS is not available in this browser.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setReportCoordinates({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        });
+        setLocating(false);
+        toast.success("GPS location attached", { description: `Accurate to about ${Math.round(position.coords.accuracy)} metres.` });
+      },
+      (error) => {
+        setLocating(false);
+        toast.error("Location was not attached", { description: error.message || "Allow location access and try again." });
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 },
+    );
+  }
+
   function resetDialog(open: boolean) {
     setReportOpen(open);
-    if (!open) window.setTimeout(() => { setSubmitted(false); setSubmission(null); setEvidenceFile(null); }, 250);
+    if (!open) window.setTimeout(() => { setSubmitted(false); setSubmission(null); setEvidenceFile(null); setReportCoordinates(null); setLocating(false); }, 250);
   }
 
   return (
@@ -319,10 +312,10 @@ export default function Home() {
             <aside className="order-2 rounded-2xl border bg-card/70 p-4 soft-ring xl:order-1">
               <div className="mb-4 flex items-center justify-between">
                 <div><p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Hotspots</p><h2 className="mt-1 text-lg font-bold">Needs attention</h2></div>
-                <Badge variant="secondary">5 live</Badge>
+                <Badge variant="secondary">{visibleHotspots.length} live</Badge>
               </div>
               <div className="space-y-2">
-                {hotspots.slice(0, 4).map((h, index) => {
+                {visibleHotspots.slice(0, 4).map((h, index) => {
                   const Icon = layerConfig[h.category].icon;
                   return (
                     <button key={h.id} onClick={() => setSelected(h)} className="group flex w-full items-center gap-3 rounded-xl border border-transparent p-3 text-left transition hover:border-border hover:bg-secondary/80">
@@ -336,7 +329,7 @@ export default function Home() {
               </div>
             </aside>
 
-            <div className="order-1 xl:order-2"><HotspotMap layer={layer} hotspots={hotspots} onSelect={setSelected} /></div>
+            <div className="order-1 xl:order-2"><IntelligenceMap hotspots={visibleHotspots} selectedId={selected?.id} onSelect={(hotspot) => setSelected(hotspot as Hotspot)} /></div>
 
             <aside className="order-3 space-y-4">
               <article className="rounded-2xl border border-red-400/20 bg-[linear-gradient(135deg,rgba(255,95,95,.12),rgba(255,95,95,.02))] p-5 soft-ring">
@@ -443,7 +436,11 @@ export default function Home() {
               </DialogHeader>
               <div className="my-6 space-y-5">
                 <label className="block"><span className="mb-2 block text-sm font-semibold">What is happening?</span><Textarea name="description" required minLength={12} maxLength={1200} className="min-h-32 resize-none" placeholder="Example: Water has been leaking from the main pipe since yesterday..." /></label>
-                <label className="block"><span className="mb-2 block text-sm font-semibold">Location</span><div className="relative"><Navigation className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-primary" /><Input name="location" required maxLength={160} className="pl-9" defaultValue="Sector 17, Rohini, Delhi" /></div></label>
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3"><span className="text-sm font-semibold">Location</span><Button type="button" size="sm" variant="outline" onClick={captureReportLocation} disabled={locating}>{locating ? <><Clock3 className="animate-spin" /> Locating…</> : <><LocateFixed /> Use my GPS</>}</Button></div>
+                  <div className="relative"><Navigation className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-primary" /><Input name="location" required maxLength={160} className="pl-9" defaultValue="Sector 17, Rohini, Delhi" /></div>
+                  <p className={`mt-2 text-xs ${reportCoordinates ? "text-primary" : "text-muted-foreground"}`}>{reportCoordinates ? `GPS attached · ${reportCoordinates.latitude.toFixed(5)}, ${reportCoordinates.longitude.toFixed(5)} · ±${Math.round(reportCoordinates.accuracy)} m` : "Add GPS for precise H3 zone placement, or keep the typed area."}</p>
+                </div>
                 <label className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-dashed p-4 text-left text-sm text-muted-foreground transition hover:border-primary/60 hover:bg-primary/5"><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4" className="sr-only" onChange={(event) => setEvidenceFile(event.target.files?.[0] ?? null)} /><span className="grid size-9 place-items-center rounded-lg bg-secondary"><ImagePlus className="size-4" /></span><span><strong className="block text-foreground">{evidenceFile ? evidenceFile.name : "Add photo or video"}</strong>{evidenceFile ? `${(evidenceFile.size / 1024 / 1024).toFixed(1)} MB selected` : "Optional evidence · maximum 10 MB"}</span></label>
               </div>
               <DialogFooter><Button type="button" variant="ghost" onClick={() => resetDialog(false)}>Cancel</Button><Button type="submit" disabled={submitting}>{submitting ? <><Clock3 className="animate-spin" /> Processing…</> : <>Analyse & report <Sparkles /></>}</Button></DialogFooter>
@@ -458,7 +455,8 @@ export default function Home() {
               <div className="my-6 rounded-2xl border bg-background/40 p-5">
                 <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-widest text-sky-300">{submission?.analysis.category} infrastructure</p><h3 className="mt-1 text-lg font-bold">{submission?.analysis.subcategory}</h3></div><Badge className={Number(submission?.analysis.severity) >= 7 ? "bg-red-400/15 text-red-200" : "bg-amber-300/15 text-amber-200"}>{Number(submission?.analysis.severity) >= 7 ? "High" : "Moderate"} severity</Badge></div>
                 <div className="mt-5 grid grid-cols-2 gap-3 text-sm"><div className="rounded-xl bg-secondary/70 p-3"><p className="text-xs text-muted-foreground">AI confidence</p><p className="mt-1 font-mono font-bold">{Math.round(Number(submission?.analysis.confidence) * 100)}%</p></div><div className="rounded-xl bg-secondary/70 p-3"><p className="text-xs text-muted-foreground">Similar nearby</p><p className="mt-1 font-mono font-bold">{submission?.analysis.similarReports ?? 0} reports</p></div></div>
-                <div className="mt-4 flex items-center gap-2 text-sm text-primary"><CircleDot className="size-4" /> Attached to the {submission?.hotspot.area} intelligence zone</div>
+                <div className="mt-4 flex items-center gap-2 text-sm text-primary"><CircleDot className="size-4" /> Attached to the {submission?.hotspot.area} H3 intelligence zone</div>
+                {submission?.complaint.h3Cell && <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">Zone ID · {submission.complaint.h3Cell}</p>}
               </div>
               <DialogFooter><Button onClick={() => resetDialog(false)} className="w-full">Done</Button></DialogFooter>
             </div>
@@ -479,6 +477,7 @@ export default function Home() {
                 <div className="grid grid-cols-2 gap-3">
                   {[['Priority', `${selected.priority}/10`], ['Reports', `${selected.reports}`], ['Affected radius', selected.radius], ['Active since', selected.since]].map(([k,v]) => <div key={k} className="rounded-xl border bg-background/35 p-4"><p className="text-xs text-muted-foreground">{k}</p><p className="mt-1 font-mono text-lg font-bold">{v}</p></div>)}
                 </div>
+                <div className="rounded-xl border bg-background/35 p-4"><div className="flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">H3 geographic zone</p><Badge variant="outline">Resolution 8</Badge></div><p className="mt-2 break-all font-mono text-xs text-primary">{selected.h3Cell}</p><p className="mt-2 font-mono text-[11px] text-muted-foreground">{selected.latitude.toFixed(5)}, {selected.longitude.toFixed(5)}</p></div>
                 <div><div className="mb-3 flex items-center justify-between"><p className="font-semibold">Signal trend</p><span className="font-mono text-sm font-bold text-red-300">+{selected.growth}%</span></div><TrendBars /></div>
                 <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5"><div className="mb-3 flex items-center gap-2 text-primary"><Lightbulb className="size-4" /><p className="text-xs font-bold uppercase tracking-widest">AI summary</p></div><p className="text-sm leading-7 text-slate-300">Multiple reports indicate {selected.issue.toLowerCase()} affecting residents across {selected.area}. The signal is geographically concentrated and has increased during the last 24 hours.</p></div>
                 <div>

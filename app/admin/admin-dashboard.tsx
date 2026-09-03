@@ -12,8 +12,8 @@ type AdminData = {
   stats: { users: number; pendingOrganizations: number; complaints: number; underInvestigation: number };
   users: Array<{ id: number; email: string; displayName: string; role: string; createdAt: string }>;
   organizations: Array<{ id: number; name: string; expertise: string; operatingRegion: string; contactEmail: string | null; status: string; createdAt: string }>;
-  complaints: Array<{ id: number; trackingCode: string; description: string; location: string; category: string; severity: number; status: string; createdAt: string }>;
-  hotspots: Array<{ id: number; area: string; category: string; issue: string; priority: number; reports: number; growth: number; status: string }>;
+  complaints: Array<{ id: number; trackingCode: string; description: string; location: string; category: string; severity: number; status: string; h3Cell: string | null; latitude: number | null; longitude: number | null; createdAt: string }>;
+  hotspots: Array<{ id: number; area: string; category: string; issue: string; priority: number; reports: number; growth: number; status: string; h3Cell: string | null; latitude: number | null; longitude: number | null }>;
 };
 
 export function AdminDashboard() {
@@ -96,7 +96,7 @@ export function AdminDashboard() {
         <div className="space-y-3">
           {data.hotspots.map((hotspot) => (
             <article key={hotspot.id} className="grid gap-4 rounded-xl border p-4 lg:grid-cols-[1fr_220px] lg:items-center">
-              <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{hotspot.area} · {hotspot.issue}</h3><Badge variant="secondary">{hotspot.priority}/10</Badge></div><p className="mt-1 text-sm text-muted-foreground">{hotspot.category} · {hotspot.reports} reports · +{hotspot.growth}%</p></div>
+              <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold">{hotspot.area} · {hotspot.issue}</h3><Badge variant="secondary">{hotspot.priority}/10</Badge></div><p className="mt-1 text-sm text-muted-foreground">{hotspot.category} · {hotspot.reports} reports · +{hotspot.growth}%</p>{hotspot.h3Cell && <p className="mt-2 font-mono text-[11px] text-primary">H3 · {hotspot.h3Cell}</p>}</div>
               <NativeSelect value={hotspot.status} onChange={(event) => void updateHotspot(hotspot.id, event.target.value)} aria-label={`Status for ${hotspot.area}`}>
                 {["Reported", "Under Investigation", "Solution Proposed", "Resolved"].map((status) => <NativeSelectOption key={status} value={status}>{status}</NativeSelectOption>)}
               </NativeSelect>

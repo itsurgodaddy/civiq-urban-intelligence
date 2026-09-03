@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "maplibre-gl/dist/maplibre-gl.css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
 @utility scrollbar-thin { scrollbar-width: thin; }
@@ -93,29 +94,48 @@ body {
 }
 button, input, textarea { font: inherit; }
 
-.map-grid {
-  background-color: #0a1716;
-  background-image:
-    linear-gradient(rgba(147, 190, 179, .045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(147, 190, 179, .045) 1px, transparent 1px);
-  background-size: 28px 28px;
-  position: relative;
-  overflow: hidden;
-}
-.map-grid::before, .map-grid::after { content: ""; position: absolute; inset: -15%; pointer-events: none; }
-.map-grid::before {
-  background:
-    linear-gradient(24deg, transparent 42%, rgba(70, 104, 98, .18) 43%, rgba(70, 104, 98, .18) 45%, transparent 46%),
-    linear-gradient(112deg, transparent 48%, rgba(70, 104, 98, .15) 49%, rgba(70, 104, 98, .15) 51%, transparent 52%);
-}
-.map-grid::after { background: radial-gradient(circle at center, transparent 20%, rgba(2, 8, 7, .55) 85%); }
-.hex {
-  clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%);
-  transition: transform .22s ease, filter .22s ease, opacity .22s ease;
-}
-.hex:hover, .hex:focus-visible { transform: scale(1.12); filter: brightness(1.25); z-index: 20; }
 .soft-ring { box-shadow: 0 0 0 1px rgba(144, 193, 180, .08), 0 20px 60px rgba(0,0,0,.25); }
-.scanline { background: linear-gradient(90deg, transparent, rgba(99, 242, 176, .45), transparent); }
+
+.civiq-map { min-height: 540px; }
+.civiq-map .maplibregl-canvas { outline: none; }
+.civiq-map .maplibregl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(7, 16, 15, .92);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .32);
+}
+.civiq-map .maplibregl-ctrl-group button { background-color: transparent; }
+.civiq-map .maplibregl-ctrl-group button + button { border-top-color: var(--border); }
+.civiq-map .maplibregl-ctrl-icon { filter: invert(91%) sepia(10%) saturate(322%) hue-rotate(111deg); }
+.civiq-map .maplibregl-ctrl-attrib {
+  border: 1px solid rgba(35, 53, 50, .8);
+  background: rgba(7, 16, 15, .86);
+  color: #a9bdb7;
+}
+.civiq-map .maplibregl-ctrl-attrib a { color: #89dcb9; }
+.map-priority-marker {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 2px solid currentColor;
+  border-radius: 9999px;
+  background: rgba(7, 16, 15, .92);
+  color: #dbe9e5;
+  box-shadow: 0 0 0 5px rgba(7, 16, 15, .55), 0 8px 28px rgba(0, 0, 0, .45);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: .75rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.map-priority-marker:hover,
+.map-priority-marker:focus-visible,
+.map-priority-marker[data-selected="true"] { transform: scale(1.16); box-shadow: 0 0 0 6px rgba(99, 242, 176, .22), 0 10px 32px rgba(0, 0, 0, .5); }
+.map-priority-marker[data-category="Water"] { color: #4bb6ff; }
+.map-priority-marker[data-category="Roads"] { color: #ff746d; }
+.map-priority-marker[data-category="Waste"] { color: #52e6a0; }
+.map-priority-marker[data-category="Electricity"] { color: #ffbd59; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

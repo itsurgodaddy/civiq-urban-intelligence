@@ -9,9 +9,21 @@ CIVIQ turns authenticated citizen reports into prioritized city hotspots and con
 - **Authorization:** server-side CIVIQ roles in D1 (`citizen`, `organization_pending`, `organization`, `admin`)
 - **Database:** Cloudflare D1 through the logical `DB` binding
 - **Evidence files:** Cloudflare R2 through the logical `BUCKET` binding
+- **Map:** MapLibre GL JS with a low-volume OpenStreetMap development basemap
+- **Geographic clustering:** H3 resolution 8 cells generated server-side for every hotspot and report
 - **Source identity:** `.openai/hosting.json` contains the opaque Sites project ID and binding names
 
 No CIVIQ password is stored. The platform provides a stable per-Site user ID, while CIVIQ controls what that identity may do.
+
+## Version 4 geographic flow
+
+1. A citizen types an area and can optionally attach their browser GPS position.
+2. The API validates the coordinates or resolves the typed Delhi area to a stable point.
+3. H3 converts that point into a resolution 8 cell ID.
+4. Reports in the same category and H3 cell update one hotspot instead of creating duplicate map markers.
+5. The dashboard renders the H3 boundary as an interactive MapLibre polygon and exposes the zone ID in the owner dashboard.
+
+Typed-location fallback keeps the demo deterministic when a citizen declines location permission. GPS is never requested until the citizen chooses **Use my GPS**.
 
 ## Access model
 
@@ -48,7 +60,7 @@ The setup key is only a bootstrap secret. Daily owner access uses Sign in with C
 - `/account` — protected account and organization application page
 - `/admin` — protected owner dashboard and one-time owner claim
 - `/api/dashboard` — public map data plus the signed-in user's own reports
-- `/api/complaints` — authenticated report creation
+- `/api/complaints` — authenticated report creation, coordinate validation, and H3 assignment
 - `/api/evidence` — authenticated upload and opaque-key retrieval
 - `/api/organizations/apply` — authenticated organization application
 - `/api/hotspots/[id]/adopt` — verified organization/admin action

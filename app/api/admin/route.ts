@@ -17,10 +17,10 @@ export async function GET() {
         created_at AS createdAt FROM organizations
         ORDER BY CASE verification_status WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC`).all(),
       db.prepare(`SELECT id, tracking_code AS trackingCode, description, location, category,
-        severity, status, created_at AS createdAt FROM complaints
+        severity, status, h3_cell AS h3Cell, latitude, longitude, created_at AS createdAt FROM complaints
         ORDER BY created_at DESC, id DESC LIMIT 50`).all(),
       db.prepare(`SELECT id, area, category, issue, priority, report_count AS reports,
-        growth, status, updated_at AS updatedAt FROM hotspots
+        growth, status, h3_cell AS h3Cell, latitude, longitude, updated_at AS updatedAt FROM hotspots
         ORDER BY priority DESC, report_count DESC LIMIT 50`).all(),
       db.prepare(`SELECT
         (SELECT COUNT(*) FROM site_users) AS users,
