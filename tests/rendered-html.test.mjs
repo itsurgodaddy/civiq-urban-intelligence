@@ -21,6 +21,8 @@ test("ships the Version 4 MapLibre and H3 intelligence layer", async () => {
   const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
   assert.match(map, /maplibre-gl/);
   assert.match(map, /cellToBoundary/);
+  assert.match(map, /<polygon/);
+  assert.match(map, /projectZones/);
   assert.match(geo, /latLngToCell/);
   assert.match(schema, /h3_cell/);
 });
