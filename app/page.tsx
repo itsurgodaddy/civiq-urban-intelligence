@@ -29,9 +29,14 @@ import { IntelligenceMap } from "@/components/intelligence-map";
 
 type Layer = "All" | "Water" | "Roads" | "Waste" | "Electricity";
 type Hotspot = {
-  id: number; area: string; category: Exclude<Layer, "All">; issue: string;
+  id: number | string; area: string; category: Exclude<Layer, "All">; issue: string;
   priority: number; reports: number; growth: number; since: string;
   radius: string; status?: string; latitude: number; longitude: number; h3Cell: string;
+};
+
+type AggregatedHotspot = Hotspot & {
+  isCluster?: boolean;
+  containedHotspots?: Hotspot[];
 };
 
 type Complaint = {
@@ -113,7 +118,7 @@ function ReportAction({ signedIn, onOpen, className = "", compact = false }: { s
 
 export default function Home() {
   const [layer, setLayer] = useState<Layer>("All");
-  const [selected, setSelected] = useState<Hotspot | null>(null);
+  const [selected, setSelected] = useState<AggregatedHotspot | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [adopted, setAdopted] = useState<number[]>([]);
@@ -166,7 +171,33 @@ export default function Home() {
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void loadDashboard(); }, []);
+  useEffect(() => { 
+    // TODO: REMOVE MOCK DATA - DEV ONLY
+    // Bypassing API to test 3D multi-category rings
+    const mockData: Hotspot[] = [
+      // Cluster 1 (Sector 17) - Multi-category stack (Water, Roads, Waste, Electricity)
+      { id: "mock-1", area: "Sector 17 Zone A", category: "Water", issue: "Pipeline Leak", priority: 8.5, reports: 12, growth: 10, since: "1 day", radius: "1 km", latitude: 28.7407, longitude: 77.1136, h3Cell: "883da18ea3fffff" },
+      { id: "mock-2", area: "Sector 17 Zone B", category: "Roads", issue: "Potholes", priority: 7.2, reports: 8, growth: 5, since: "3 days", radius: "1 km", latitude: 28.7408, longitude: 77.1137, h3Cell: "883da18ea3fffff" },
+      { id: "mock-3", area: "Sector 17 Zone C", category: "Waste", issue: "Garbage Dump", priority: 6.8, reports: 15, growth: 20, since: "5 days", radius: "1 km", latitude: 28.7406, longitude: 77.1135, h3Cell: "883da18ea3fffff" },
+      { id: "mock-4", area: "Sector 17 Zone D", category: "Electricity", issue: "Power Outage", priority: 9.1, reports: 30, growth: 50, since: "Live", radius: "2 km", latitude: 28.7407, longitude: 77.1136, h3Cell: "883da18ea3fffff" },
+      
+      // Cluster 2 (Sector 24) - Multi-category stack (Roads, Water)
+      { id: "mock-5", area: "Sector 24 North", category: "Roads", issue: "Broken Traffic Light", priority: 8.0, reports: 5, growth: 2, since: "12 hours", radius: "0.5 km", latitude: 28.7242, longitude: 77.0895, h3Cell: "883da18c1dfffff" },
+      { id: "mock-6", area: "Sector 24 South", category: "Water", issue: "Drainage Overflow", priority: 7.5, reports: 14, growth: 15, since: "2 days", radius: "0.8 km", latitude: 28.7243, longitude: 77.0896, h3Cell: "883da18c1dfffff" },
+
+      // Normal single
+      { id: "mock-7", area: "Model Town", category: "Waste", issue: "Uncollected solid waste", priority: 6.4, reports: 19, growth: 41, since: "5 days", radius: "0.6 km", latitude: 28.7029, longitude: 77.1912, h3Cell: "883da1165bfffff" },
+    ];
+    setHotspots(mockData);
+    setViewer({
+      displayName: "Mock Admin",
+      email: "mock@example.com",
+      role: "admin",
+      organizationId: 1,
+      organizationName: "Civic Authority",
+      organizationStatus: "active"
+    });
+  }, []);
 
   async function submitReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -329,7 +360,7 @@ export default function Home() {
               </div>
             </aside>
 
-            <div className="order-1 xl:order-2"><IntelligenceMap hotspots={visibleHotspots} selectedId={selected?.id} onSelect={(hotspot) => setSelected(hotspot as Hotspot)} /></div>
+            <div className="order-1 xl:order-2"><IntelligenceMap hotspots={visibleHotspots} selectedId={selected?.id} onSelect={(hotspot) => setSelected(hotspot as AggregatedHotspot)} /></div>
 
             <aside className="order-3 space-y-4">
               <article className="rounded-2xl border border-red-400/20 bg-[linear-gradient(135deg,rgba(255,95,95,.12),rgba(255,95,95,.02))] p-5 soft-ring">
@@ -477,13 +508,46 @@ export default function Home() {
                 <div className="grid grid-cols-2 gap-3">
                   {[['Priority', `${selected.priority}/10`], ['Reports', `${selected.reports}`], ['Affected radius', selected.radius], ['Active since', selected.since]].map(([k,v]) => <div key={k} className="rounded-xl border bg-background/35 p-4"><p className="text-xs text-muted-foreground">{k}</p><p className="mt-1 font-mono text-lg font-bold">{v}</p></div>)}
                 </div>
-                <div className="rounded-xl border bg-background/35 p-4"><div className="flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">H3 geographic zone</p><Badge variant="outline">Resolution 8</Badge></div><p className="mt-2 break-all font-mono text-xs text-primary">{selected.h3Cell}</p><p className="mt-2 font-mono text-[11px] text-muted-foreground">{selected.latitude.toFixed(5)}, {selected.longitude.toFixed(5)}</p></div>
+                <div className="rounded-xl border bg-background/35 p-4"><div className="flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">H3 geographic zone</p><Badge variant="outline">{selected.isCluster ? "Regional Cluster" : "Resolution 8"}</Badge></div><p className="mt-2 break-all font-mono text-xs text-primary">{selected.h3Cell}</p><p className="mt-2 font-mono text-[11px] text-muted-foreground">{selected.latitude.toFixed(5)}, {selected.longitude.toFixed(5)}</p></div>
                 <div><div className="mb-3 flex items-center justify-between"><p className="font-semibold">Signal trend</p><span className="font-mono text-sm font-bold text-red-300">+{selected.growth}%</span></div><TrendBars /></div>
                 <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5"><div className="mb-3 flex items-center gap-2 text-primary"><Lightbulb className="size-4" /><p className="text-xs font-bold uppercase tracking-widest">AI summary</p></div><p className="text-sm leading-7 text-slate-300">Multiple reports indicate {selected.issue.toLowerCase()} affecting residents across {selected.area}. The signal is geographically concentrated and has increased during the last 24 hours.</p></div>
+                
+                {selected.isCluster && selected.containedHotspots && (
+                  <div>
+                    <div className="mb-3 flex items-center justify-between"><p className="font-semibold">Aggregated Issues</p><p className="text-xs text-muted-foreground">{selected.containedHotspots.length} underlying zones</p></div>
+                    <div className="space-y-3">
+                      {(['Water', 'Roads', 'Waste', 'Electricity'] as const).map(cat => {
+                        const catHotspots = selected.containedHotspots!.filter(h => h.category === cat);
+                        if (catHotspots.length === 0) return null;
+                        return (
+                          <div key={cat} className="rounded-xl border bg-background/35 p-4">
+                            <p className="mb-3 text-xs font-bold uppercase tracking-widest text-primary">{cat} ({catHotspots.length})</p>
+                            <ul className="space-y-2 text-sm text-slate-300">
+                              {catHotspots.map(h => (
+                                <li key={h.id} className="flex gap-2"><span className="text-primary">•</span> <span><strong>{h.area}:</strong> {h.issue} <span className="text-muted-foreground">(Pri {h.priority})</span></span></li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <div className="mb-3 flex items-center justify-between"><p className="font-semibold">Why {selected.priority}?</p><p className="text-xs text-muted-foreground">Explainable priority</p></div>
                   <div className="space-y-4">
-                    {[['Complaint density', 91], ['Severity', 84], ['Growth rate', Math.min(selected.growth / 3, 96)], ['Persistence', 72], ['Population impact', 85]].map(([label,value]) => <div key={String(label)}><div className="mb-1.5 flex justify-between text-xs"><span className="text-muted-foreground">{label}</span><span className="font-mono">{(Number(value)/10).toFixed(1)}</span></div><Progress value={Number(value)} className="h-1.5" /></div>)}
+                    {(() => {
+                      const isClust = selected.isCluster && selected.containedHotspots;
+                      const maxReports = isClust ? Math.max(...selected.containedHotspots!.map(h => h.reports)) : selected.reports;
+                      const density = isClust ? Math.min(99, maxReports * 2) : 91;
+                      const severity = isClust ? Math.min(99, selected.priority * 10) : 84;
+                      const growth = isClust ? Math.min(99, selected.growth / 3) : Math.min(selected.growth / 3, 96);
+                      const persistence = isClust ? Math.min(99, 75 + selected.containedHotspots!.length * 2) : 72;
+                      const popImpact = isClust ? Math.min(99, 70 + selected.containedHotspots!.length * 5) : 85;
+                      
+                      return [['Complaint density', density], ['Severity', severity], ['Growth rate', growth], ['Persistence', persistence], ['Population impact', popImpact]].map(([label,value]) => <div key={String(label)}><div className="mb-1.5 flex justify-between text-xs"><span className="text-muted-foreground">{label}</span><span className="font-mono">{(Number(value)/10).toFixed(1)}</span></div><Progress value={Number(value)} className="h-1.5" /></div>)
+                    })()}
                   </div>
                 </div>
               </div>
