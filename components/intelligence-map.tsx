@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { cellToBoundary, isValidCell, latLngToCell } from "h3-js";
+import { cellToBoundary, cellToLatLng, cellToParent, isValidCell, latLngToCell } from "h3-js";
 import { Crosshair, Hexagon, Radio } from "lucide-react";
 
 export type GeographicHotspot = {
@@ -30,32 +30,113 @@ const zoneColors: Record<GeographicHotspot["category"], string> = {
   Electricity: "#ffbd59",
 };
 
-function zoneBoundary(hotspot: GeographicHotspot) {
-  const cell = isValidCell(hotspot.h3Cell)
+function getH3Cell(hotspot: GeographicHotspot): string {
+  return isValidCell(hotspot.h3Cell)
     ? hotspot.h3Cell
     : latLngToCell(hotspot.latitude, hotspot.longitude, 8);
-  return cellToBoundary(cell, true) as Array<[number, number]>;
 }
 
-type ProjectedZone = {
-  hotspot: GeographicHotspot;
-  points: string;
-};
+function cellToClosedBoundary(cell: string) {
+  const boundary = cellToBoundary(cell, true) as Array<[number, number]>;
+  if (boundary.length > 0) boundary.push(boundary[0]);
+  return boundary;
+}
+
+function createCrystalTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  
+  ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(32, 32); ctx.lineTo(0, 64); ctx.fill();
+  
+  ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
+  ctx.beginPath(); ctx.moveTo(64,0); ctx.lineTo(32, 32); ctx.lineTo(64, 64); ctx.fill();
+  
+  ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(64, 0); ctx.lineTo(32, 32); ctx.fill();
+  
+  ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+  ctx.beginPath(); ctx.moveTo(0,64); ctx.lineTo(64, 64); ctx.lineTo(32, 32); ctx.fill();
+  
+  return ctx.getImageData(0, 0, 64, 64);
+}
+
+function createBadgeImage(color: string, selected: boolean) {
+  const size = 80;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const center = size / 2;
+  const radius = 22;
+
+  if (selected) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
+  }
+  
+  ctx.beginPath();
+  ctx.arc(center, center, radius, 0, Math.PI * 2);
+  ctx.fillStyle = "#111827";
+  ctx.fill();
+
+  ctx.lineWidth = selected ? 4 : 2.5;
+  ctx.strokeStyle = selected ? "#ffffff" : color;
+  ctx.stroke();
+
+  return ctx.getImageData(0, 0, size, size);
+}
+
+const fadeExpression: any = [
+  "interpolate", ["linear"], ["zoom"],
+  7.5, ["match", ["get", "resolution"], 4, 1, 0],
+  8,   ["match", ["get", "resolution"], 4, 0, 5, 1, 0],
+  9,   ["match", ["get", "resolution"], 5, 1, 6, 0, 0],
+  9.5, ["match", ["get", "resolution"], 5, 0, 6, 1, 0],
+  10.5, ["match", ["get", "resolution"], 6, 1, 7, 0, 0],
+  11,   ["match", ["get", "resolution"], 6, 0, 7, 1, 0],
+  12,   ["match", ["get", "resolution"], 7, 1, 8, 0, 0],
+  12.5, ["match", ["get", "resolution"], 7, 0, 8, 1, 0]
+];
+
+const fillOpacityExpression: any = [
+  "interpolate", ["linear"], ["zoom"],
+  7.5, ["match", ["get", "resolution"], 4, ["get", "baseOpacity"], 0],
+  8,   ["match", ["get", "resolution"], 4, 0, 5, ["get", "baseOpacity"], 0],
+  9,   ["match", ["get", "resolution"], 5, ["get", "baseOpacity"], 6, 0, 0],
+  9.5, ["match", ["get", "resolution"], 5, 0, 6, ["get", "baseOpacity"], 0],
+  10.5, ["match", ["get", "resolution"], 6, ["get", "baseOpacity"], 7, 0, 0],
+  11,   ["match", ["get", "resolution"], 6, 0, 7, ["get", "baseOpacity"], 0],
+  12,   ["match", ["get", "resolution"], 7, ["get", "baseOpacity"], 8, 0, 0],
+  12.5, ["match", ["get", "resolution"], 7, 0, 8, ["get", "baseOpacity"], 0]
+];
+
+const textureOpacityExpression: any = [
+  "interpolate", ["linear"], ["zoom"],
+  7.5, ["match", ["get", "resolution"], 4, 0.7, 0],
+  8,   ["match", ["get", "resolution"], 4, 0, 5, 0.7, 0],
+  9,   ["match", ["get", "resolution"], 5, 0.7, 6, 0, 0],
+  9.5, ["match", ["get", "resolution"], 5, 0, 6, 0.7, 0],
+  10.5, ["match", ["get", "resolution"], 6, 0.7, 7, 0, 0],
+  11,   ["match", ["get", "resolution"], 6, 0, 7, 0.7, 0],
+  12,   ["match", ["get", "resolution"], 7, 0.7, 8, 0, 0],
+  12.5, ["match", ["get", "resolution"], 7, 0, 8, 0.7, 0]
+];
 
 export function IntelligenceMap({ hotspots, selectedId, onSelect }: IntelligenceMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
-  const mapLibraryRef = useRef<typeof import("maplibre-gl") | null>(null);
-  const markersRef = useRef<Array<import("maplibre-gl").Marker>>([]);
   const hotspotsRef = useRef(hotspots);
   const selectRef = useRef(onSelect);
-  const projectZonesRef = useRef<() => void>(() => undefined);
+  const selectedIdRef = useRef(selectedId);
   const [ready, setReady] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
-  const [projectedZones, setProjectedZones] = useState<ProjectedZone[]>([]);
 
   useEffect(() => { hotspotsRef.current = hotspots; }, [hotspots]);
   useEffect(() => { selectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -63,17 +144,17 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
 
     void import("maplibre-gl").then((maplibregl) => {
       if (disposed || !containerRef.current) return;
-      mapLibraryRef.current = maplibregl;
 
       const map = new maplibregl.Map({
         container: containerRef.current,
         center: [77.123, 28.724],
         zoom: 11.35,
-        minZoom: 9,
+        minZoom: 4,
         maxZoom: 17,
         attributionControl: true,
         style: {
           version: 8,
+          glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
           sources: {
             osm: {
               type: "raster",
@@ -105,36 +186,103 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
         showAccuracyCircle: true,
       }), "top-right");
 
-      let projectionFrame = 0;
-      const projectZones = () => {
-        window.cancelAnimationFrame(projectionFrame);
-        projectionFrame = window.requestAnimationFrame(() => {
-          if (disposed) return;
-          setProjectedZones(hotspotsRef.current.map((hotspot) => ({
-            hotspot,
-            points: zoneBoundary(hotspot).map(([longitude, latitude]) => {
-              const point = map.project([longitude, latitude]);
-              return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
-            }).join(" "),
-          })));
-        });
-      };
-      projectZonesRef.current = projectZones;
-
       map.once("load", () => {
         if (disposed) return;
-        projectZones();
-        map.on("move", projectZones);
-        map.on("resize", projectZones);
+        
+        map.addImage("crystal-texture", createCrystalTexture());
+        
+        Object.entries(zoneColors).forEach(([category, color]) => {
+          map.addImage(`badge-${category}-false`, createBadgeImage(color, false));
+          map.addImage(`badge-${category}-true`, createBadgeImage(color, true));
+        });
+
+        map.addSource("zones", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] }
+        });
+        
+        map.addSource("badges", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] }
+        });
+
+        map.addLayer({
+          id: "zones-fill",
+          type: "fill",
+          source: "zones",
+          paint: {
+            "fill-color": ["get", "color"],
+            "fill-opacity": fillOpacityExpression
+          }
+        });
+
+        map.addLayer({
+          id: "zones-texture",
+          type: "fill",
+          source: "zones",
+          paint: {
+            "fill-pattern": "crystal-texture",
+            "fill-opacity": textureOpacityExpression
+          }
+        });
+
+        map.addLayer({
+          id: "zones-line",
+          type: "line",
+          source: "zones",
+          paint: {
+            "line-color": ["case", ["==", ["get", "selected"], true], "#ffffff", ["get", "color"]],
+            "line-width": ["case", ["==", ["get", "selected"], true], 4, 2.5],
+            "line-opacity": fadeExpression
+          }
+        });
+
+        map.addLayer({
+          id: "badges-symbol",
+          type: "symbol",
+          source: "badges",
+          layout: {
+            "icon-image": ["get", "icon"],
+            "icon-size": 1,
+            "icon-allow-overlap": true,
+            "text-field": ["get", "priority"],
+            "text-size": 13,
+            "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+            "text-allow-overlap": true,
+          },
+          paint: {
+            "text-color": "#ffffff",
+            "icon-opacity": fadeExpression,
+            "text-opacity": fadeExpression
+          }
+        });
+
+        const clickHandler = (e: any) => {
+          if (!e.features?.length) return;
+          const props = e.features[0].properties;
+          if (props.cluster) {
+            const geom = e.features[0].geometry;
+            map.flyTo({ center: geom.coordinates, zoom: map.getZoom() + 1.5, duration: 800 });
+          } else {
+            const hotspot = hotspotsRef.current.find(h => h.id === props.id);
+            if (hotspot) selectRef.current(hotspot);
+          }
+        };
+
+        map.on("click", "badges-symbol", clickHandler);
+        map.on("click", "zones-fill", clickHandler);
+
+        map.on("mouseenter", "badges-symbol", () => map.getCanvas().style.cursor = "pointer");
+        map.on("mouseleave", "badges-symbol", () => map.getCanvas().style.cursor = "");
+        map.on("mouseenter", "zones-fill", () => map.getCanvas().style.cursor = "pointer");
+        map.on("mouseleave", "zones-fill", () => map.getCanvas().style.cursor = "");
+
         setReady(true);
       });
     }).catch(() => setMapUnavailable(true));
 
     return () => {
       disposed = true;
-      projectZonesRef.current = () => undefined;
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current = [];
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -142,78 +290,105 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
 
   useEffect(() => {
     const map = mapRef.current;
-    const maplibregl = mapLibraryRef.current;
-    if (!map || !maplibregl || !ready) return;
-    projectZonesRef.current();
+    if (!map || !ready) return;
+    
+    const zonesSource = map.getSource("zones") as import("maplibre-gl").GeoJSONSource;
+    const badgesSource = map.getSource("badges") as import("maplibre-gl").GeoJSONSource;
+    
+    if (zonesSource && badgesSource) {
+      const allZones: any[] = [];
+      const allBadges: any[] = [];
+      const targetResolutions = [4, 5, 6, 7, 8];
 
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = hotspots.map((hotspot) => {
-      const markerButton = document.createElement("button");
-      markerButton.type = "button";
-      markerButton.className = "map-priority-marker";
-      markerButton.dataset.category = hotspot.category;
-      markerButton.dataset.selected = String(hotspot.id === selectedId);
-      markerButton.textContent = hotspot.priority.toFixed(1);
-      markerButton.title = `${hotspot.area}: ${hotspot.issue}`;
-      markerButton.setAttribute("aria-label", `Open ${hotspot.area} ${hotspot.category} hotspot`);
-      markerButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        selectRef.current(hotspot);
+      targetResolutions.forEach(res => {
+        if (res === 8) {
+          hotspots.forEach(hotspot => {
+            const cell = getH3Cell(hotspot);
+            allZones.push({
+              type: "Feature",
+              geometry: { type: "Polygon", coordinates: [cellToClosedBoundary(cell)] },
+              properties: {
+                id: hotspot.id,
+                cluster: false,
+                resolution: 8,
+                color: zoneColors[hotspot.category],
+                baseOpacity: Math.min(0.72, 0.28 + hotspot.priority * 0.045),
+                selected: hotspot.id === selectedId
+              }
+            });
+            const [lat, lng] = cellToLatLng(cell);
+            allBadges.push({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [lng, lat] },
+              properties: {
+                id: hotspot.id,
+                cluster: false,
+                resolution: 8,
+                priority: hotspot.priority.toFixed(1),
+                icon: `badge-${hotspot.category}-${hotspot.id === selectedId}`
+              }
+            });
+          });
+        } else {
+          const groups = new Map<string, GeographicHotspot[]>();
+          hotspots.forEach(hotspot => {
+            const cell = getH3Cell(hotspot);
+            const parent = cellToParent(cell, res);
+            if (!groups.has(parent)) groups.set(parent, []);
+            groups.get(parent)!.push(hotspot);
+          });
+
+          groups.forEach((group, parentCell) => {
+            const avgPriority = group.reduce((sum, h) => sum + h.priority, 0) / group.length;
+            const topHotspot = group.reduce((top, h) => h.priority > top.priority ? h : top, group[0]);
+            const isSelected = group.some(h => h.id === selectedId);
+
+            allZones.push({
+              type: "Feature",
+              geometry: { type: "Polygon", coordinates: [cellToClosedBoundary(parentCell)] },
+              properties: {
+                id: `cluster-${parentCell}`,
+                cluster: true,
+                resolution: res,
+                color: zoneColors[topHotspot.category],
+                baseOpacity: Math.min(0.72, 0.28 + avgPriority * 0.045),
+                selected: isSelected
+              }
+            });
+
+            const [lat, lng] = cellToLatLng(parentCell);
+            allBadges.push({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [lng, lat] },
+              properties: {
+                id: `cluster-${parentCell}`,
+                cluster: true,
+                resolution: res,
+                priority: avgPriority.toFixed(1),
+                icon: `badge-${topHotspot.category}-${isSelected}`
+              }
+            });
+          });
+        }
       });
-      return new maplibregl.Marker({ element: markerButton, anchor: "center" })
-        .setLngLat([hotspot.longitude, hotspot.latitude])
-        .addTo(map);
-    });
+
+      zonesSource.setData({ type: "FeatureCollection", features: allZones });
+      badgesSource.setData({ type: "FeatureCollection", features: allBadges });
+    }
   }, [hotspots, ready, selectedId]);
 
   useEffect(() => {
     const map = mapRef.current;
     const selected = hotspots.find((hotspot) => hotspot.id === selectedId);
     if (!map || !selected) return;
-    map.flyTo({ center: [selected.longitude, selected.latitude], zoom: Math.max(map.getZoom(), 12.8), duration: 750 });
+    
+    const [lat, lng] = cellToLatLng(getH3Cell(selected));
+    map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 12.8), duration: 750 });
   }, [hotspots, selectedId]);
 
   return (
     <div className="civiq-map-shell relative min-h-[540px] overflow-hidden rounded-2xl border bg-[#091513] soft-ring">
       <div ref={containerRef} className="civiq-map absolute inset-0" aria-label="Interactive Delhi civic intelligence map" />
-
-      {ready && (
-        <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full" aria-label={`${projectedZones.length} visible H3 priority zones`}>
-          {projectedZones.map(({ hotspot, points }) => {
-            const color = zoneColors[hotspot.category];
-            const selected = hotspot.id === selectedId;
-            const fillOpacity = Math.min(0.72, 0.28 + hotspot.priority * 0.045);
-            return (
-              <polygon
-                key={hotspot.id}
-                points={points}
-                fill={color}
-                fillOpacity={fillOpacity}
-                stroke={selected ? "#ffffff" : color}
-                strokeWidth={selected ? 4 : 2.5}
-                strokeLinejoin="round"
-                className="pointer-events-auto cursor-pointer transition-[fill-opacity,filter] duration-200 hover:fill-opacity-90"
-                style={{ filter: selected ? `drop-shadow(0 0 12px ${color})` : `drop-shadow(0 0 5px ${color}99)` }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  selectRef.current(hotspot);
-                }}
-                role="button"
-                tabIndex={0}
-                aria-label={`Open ${hotspot.area} ${hotspot.category} H3 zone`}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    selectRef.current(hotspot);
-                  }
-                }}
-              >
-                <title>{`${hotspot.area}: ${hotspot.issue}, priority ${hotspot.priority.toFixed(1)}`}</title>
-              </polygon>
-            );
-          })}
-        </svg>
-      )}
 
       {!ready && !mapUnavailable && (
         <div className="absolute inset-0 z-10 grid place-items-center bg-[#091513] text-sm text-muted-foreground">
@@ -231,17 +406,8 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
           <Radio className="size-3 text-primary" /> Live Delhi layer
         </span>
         <span className="inline-flex items-center gap-2 rounded-full border bg-[#07100f]/92 px-3 py-2 text-xs font-semibold text-slate-200 backdrop-blur">
-          <Hexagon className="size-3 text-primary" /> H3 resolution 8 · {projectedZones.length} zones
+          <Hexagon className="size-3 text-primary" /> H3 multi-scale clustering
         </span>
-      </div>
-
-      <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-xl border bg-[#07100f]/92 p-3 backdrop-blur">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Zone priority</p>
-        <div className="flex items-center gap-2 text-xs text-slate-300">
-          <span>Low</span>
-          <div className="h-2 w-24 rounded-full bg-gradient-to-r from-sky-400/25 via-amber-300 to-red-400" />
-          <span>Critical</span>
-        </div>
       </div>
     </div>
   );
