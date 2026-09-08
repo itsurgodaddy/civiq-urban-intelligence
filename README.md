@@ -15,13 +15,16 @@ CIVIQ turns authenticated citizen reports into prioritized city hotspots and con
 
 No CIVIQ password is stored. The platform provides a stable per-Site user ID, while CIVIQ controls what that identity may do.
 
-## Version 4 geographic flow
+## Current dashboard and geographic flow
 
 1. A citizen types an area and can optionally attach their browser GPS position.
 2. The API validates the coordinates or resolves the typed Delhi area to a stable point.
 3. H3 converts that point into a resolution 8 cell ID.
-4. Reports in the same category and H3 cell update one hotspot instead of creating duplicate map markers.
-5. The dashboard renders the H3 boundary as an interactive MapLibre polygon and exposes the zone ID in the owner dashboard.
+4. Reports in the same category and H3 cell update one hotspot instead of creating another zone marker.
+5. The dashboard renders the H3 boundary as an interactive polygon and exposes the zone ID in the owner dashboard.
+6. Time filters and trend charts count recorded complaint rows; seeded demonstration totals are excluded from those analytics.
+
+For a file-by-file explanation and team reading plan, see [`CODEBASE_GUIDE.md`](CODEBASE_GUIDE.md).
 
 Typed-location fallback keeps the demo deterministic when a citizen declines location permission. GPS is never requested until the citizen chooses **Use my GPS**.
 

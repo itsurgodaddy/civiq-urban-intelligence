@@ -1,18 +1,17 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
-  Activity, AlertTriangle, ArrowUpRight, Building2, CheckCircle2,
-  CircleDot, Clock3, Droplets, Gauge, ImagePlus,
+  ArrowUpRight, Building2, CheckCircle2,
+  CircleDot, Clock3, Droplets, ImagePlus,
   Layers3, Lightbulb, LocateFixed, Map as MapIcon, Navigation,
-  LogIn, Plus, Radio, Route, Search, Send, ShieldCheck, Sparkles,
-  Trash2, UserRound, Waves, Wrench, Zap,
+  LogIn, Plus, Route, Search, Send, ShieldCheck, Sparkles,
+  Trash2, UserRound, Waves, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -25,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
-import { IntelligenceMap } from "@/components/intelligence-map";
+import { CityDashboard } from "@/components/city-dashboard";
 
 type Layer = "All" | "Water" | "Roads" | "Waste" | "Electricity";
 type Hotspot = {
@@ -71,37 +70,9 @@ const layerConfig = {
   Electricity: { color: "#ffbd59", soft: "rgba(255,189,89,.18)", icon: Zap },
 };
 
-const zoneTrend = [12, 16, 15, 23, 29, 37, 51, 72];
-
-function StatCard({ label, value, change, icon: Icon }: { label: string; value: string; change: string; icon: typeof Activity }) {
-  return (
-    <article className="rounded-2xl border bg-card/80 p-4 soft-ring">
-      <div className="mb-4 flex items-center justify-between text-muted-foreground">
-        <span className="text-sm">{label}</span>
-        <Icon className="size-4" />
-      </div>
-      <div className="flex items-end justify-between gap-3">
-        <strong className="text-2xl tracking-tight">{value}</strong>
-        <span className="text-xs font-semibold text-primary">{change}</span>
-      </div>
-    </article>
-  );
-}
-
 function PriorityBadge({ value }: { value: number }) {
   const tone = value >= 8 ? "border-red-400/30 bg-red-400/10 text-red-300" : value >= 6 ? "border-amber-300/30 bg-amber-300/10 text-amber-200" : "border-sky-300/30 bg-sky-300/10 text-sky-200";
   return <Badge variant="outline" className={`${tone} font-mono`}>{value.toFixed(1)} priority</Badge>;
-}
-
-function TrendBars() {
-  const max = Math.max(...zoneTrend);
-  return (
-    <div className="flex h-20 items-end gap-1.5" aria-label="Complaint growth trend">
-      {zoneTrend.map((v, i) => (
-        <div key={i} className="flex-1 rounded-t-sm bg-primary/20 transition-colors hover:bg-primary" style={{ height: `${(v / max) * 100}%` }} title={`${v} reports`} />
-      ))}
-    </div>
-  );
 }
 
 function ReportAction({ signedIn, onOpen, className = "", compact = false }: { signedIn: boolean; onOpen: () => void; className?: string; compact?: boolean }) {
@@ -112,14 +83,14 @@ function ReportAction({ signedIn, onOpen, className = "", compact = false }: { s
 }
 
 export default function Home() {
-  const [layer, setLayer] = useState<Layer>("All");
   const [selected, setSelected] = useState<Hotspot | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [adopted, setAdopted] = useState<number[]>([]);
-  const [hotspots, setHotspots] = useState<Hotspot[]>(fallbackHotspots);
+  const [hotspots, setHotspots] = useState<Hotspot[]>([]);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [stats, setStats] = useState({ activeReports: 97, emergingZones: 2, underAction: 0, resolvedZones: 0 });
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [reportCoordinates, setReportCoordinates] = useState<{ latitude: number; longitude: number; accuracy: number } | null>(null);
@@ -127,11 +98,11 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [orgSearch, setOrgSearch] = useState("");
   const [viewer, setViewer] = useState<Viewer | null | undefined>(undefined);
-  const visibleHotspots = useMemo(() => hotspots.filter((hotspot) => layer === "All" || hotspot.category === layer), [hotspots, layer]);
-  const leadHotspot = visibleHotspots[0] ?? hotspots[0] ?? fallbackHotspots[0];
   const canInvestigate = viewer?.role === "organization" || viewer?.role === "admin";
 
   async function loadDashboard() {
+    setDashboardLoading(true);
+    setDashboardError(null);
     try {
       const response = await fetch("/api/dashboard", { cache: "no-store" });
       if (!response.ok) throw new Error("City data is temporarily unavailable.");
@@ -150,18 +121,15 @@ export default function Home() {
           h3Cell: typeof item.h3Cell === "string" && item.h3Cell ? item.h3Cell : fallback.h3Cell,
         };
       });
-      if (liveHotspots.length) setHotspots(liveHotspots);
+      setHotspots(liveHotspots);
       setComplaints(data.complaints ?? []);
       setViewer(data.viewer ?? null);
-      if (data.stats) setStats({
-        activeReports: Number(data.stats.activeReports ?? 0),
-        emergingZones: Number(data.stats.emergingZones ?? 0),
-        underAction: Number(data.stats.underAction ?? 0),
-        resolvedZones: Number(data.stats.resolvedZones ?? 0),
-      });
       setAdopted(liveHotspots.filter((h) => h.status === "Under Investigation").map((h) => h.id));
     } catch (error) {
+      setDashboardError("City records could not be refreshed. Any displayed records may be outdated.");
       toast.error(error instanceof Error ? error.message : "Unable to refresh city data");
+    } finally {
+      setDashboardLoading(false);
     }
   }
 
@@ -276,84 +244,15 @@ export default function Home() {
 
       <Tabs defaultValue="intelligence" className="mx-auto max-w-[1540px] gap-0">
         <div className="border-b px-4 sm:px-6">
-          <TabsList variant="line" className="h-12 w-full justify-start gap-5 overflow-x-auto bg-transparent p-0 sm:w-auto">
+          <TabsList variant="line" className="h-12 w-full justify-start gap-5 overflow-x-auto overflow-y-hidden bg-transparent p-0 sm:w-auto">
             <TabsTrigger value="intelligence" className="h-full px-1 text-sm"><MapIcon /> Intelligence map</TabsTrigger>
             <TabsTrigger value="citizen" className="h-full px-1 text-sm"><UserRound /> Citizen view</TabsTrigger>
             <TabsTrigger value="organizations" className="h-full px-1 text-sm"><Building2 /> Organizations</TabsTrigger>
           </TabsList>
         </div>
 
-        <TabsContent value="intelligence" className="p-4 sm:p-6">
-          <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-            <div>
-              <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-primary">
-                <span className="size-1.5 rounded-full bg-primary" /> City status · 09:42
-              </div>
-              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Delhi is speaking.</h1>
-              <p className="mt-2 max-w-2xl text-base text-muted-foreground">Citizen reports are being clustered into live, explainable problem zones.</p>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {(["All", "Water", "Roads", "Waste", "Electricity"] as Layer[]).map((item) => (
-                <Button key={item} size="sm" variant={layer === item ? "default" : "outline"} onClick={() => setLayer(item)} className="rounded-full">
-                  {item}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <section className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="Clustered reports" value={stats.activeReports.toLocaleString()} change="live" icon={Activity} />
-            <StatCard label="Emerging zones" value={String(stats.emergingZones).padStart(2, "0")} change="priority ≥ 7" icon={Radio} />
-            <StatCard label="Zones under action" value={String(stats.underAction).padStart(2, "0")} change="organizations active" icon={Wrench} />
-            <StatCard label="Resolved zones" value={String(stats.resolvedZones).padStart(2, "0")} change="tracked publicly" icon={CheckCircle2} />
-          </section>
-
-          <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)_310px]">
-            <aside className="order-2 rounded-2xl border bg-card/70 p-4 soft-ring xl:order-1">
-              <div className="mb-4 flex items-center justify-between">
-                <div><p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Hotspots</p><h2 className="mt-1 text-lg font-bold">Needs attention</h2></div>
-                <Badge variant="secondary">{visibleHotspots.length} live</Badge>
-              </div>
-              <div className="space-y-2">
-                {visibleHotspots.slice(0, 4).map((h, index) => {
-                  const Icon = layerConfig[h.category].icon;
-                  return (
-                    <button key={h.id} onClick={() => setSelected(h)} className="group flex w-full items-center gap-3 rounded-xl border border-transparent p-3 text-left transition hover:border-border hover:bg-secondary/80">
-                      <span className="font-mono text-xs text-muted-foreground">0{index + 1}</span>
-                      <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: layerConfig[h.category].soft, color: layerConfig[h.category].color }}><Icon className="size-4" /></span>
-                      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{h.area}</span><span className="block truncate text-xs text-muted-foreground">{h.issue}</span></span>
-                      <span className="font-mono text-sm font-bold">{h.priority}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </aside>
-
-            <div className="order-1 xl:order-2"><IntelligenceMap hotspots={visibleHotspots} selectedId={selected?.id} onSelect={(hotspot) => setSelected(hotspot as Hotspot)} /></div>
-
-            <aside className="order-3 space-y-4">
-              <article className="rounded-2xl border border-red-400/20 bg-[linear-gradient(135deg,rgba(255,95,95,.12),rgba(255,95,95,.02))] p-5 soft-ring">
-                <div className="mb-6 flex items-start justify-between">
-                  <span className="grid size-10 place-items-center rounded-xl bg-red-400/15 text-red-300"><AlertTriangle className="size-5" /></span>
-                  <Badge className="bg-red-400 text-[#250606] hover:bg-red-400">Emerging hotspot</Badge>
-                </div>
-                <p className="text-xs font-bold uppercase tracking-[.18em] text-red-200/70">{leadHotspot.category} infrastructure</p>
-                <h2 className="mt-2 text-2xl font-black">{leadHotspot.area}</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-300">Reports suggest {leadHotspot.issue.toLowerCase()} affecting residents across the area.</p>
-                <div className="mt-5 grid grid-cols-2 gap-3 border-t border-red-200/10 pt-4">
-                  <div><p className="text-xs text-muted-foreground">Priority</p><p className="mt-1 font-mono text-xl font-bold">{leadHotspot.priority}/10</p></div>
-                  <div><p className="text-xs text-muted-foreground">24h change</p><p className="mt-1 font-mono text-xl font-bold text-red-300">+{leadHotspot.growth}%</p></div>
-                </div>
-                <Button onClick={() => setSelected(leadHotspot)} variant="outline" className="mt-5 w-full justify-between border-red-300/20 bg-red-200/5 text-red-100 hover:bg-red-200/10">Open intelligence brief <ArrowUpRight /></Button>
-              </article>
-
-              <article className="rounded-2xl border bg-card/70 p-5 soft-ring">
-                <div className="mb-4 flex items-center justify-between"><div><p className="text-xs text-muted-foreground">7-day signal</p><p className="font-bold">Complaint velocity</p></div><Gauge className="size-5 text-primary" /></div>
-                <TrendBars />
-                <div className="mt-3 flex justify-between text-xs text-muted-foreground"><span>7 days ago</span><span>Today</span></div>
-              </article>
-            </aside>
-          </section>
+        <TabsContent value="intelligence" className="p-3 sm:p-4">
+          <CityDashboard hotspots={hotspots} loading={dashboardLoading} error={dashboardError} onRetry={() => void loadDashboard()} onBrief={(zone) => setSelected(zone as Hotspot)} />
         </TabsContent>
 
         <TabsContent value="citizen" className="p-4 sm:p-6">
@@ -404,17 +303,17 @@ export default function Home() {
             {viewer?.role === "citizen" && <div className="mb-5 flex flex-col justify-between gap-4 rounded-2xl border bg-card/75 p-5 sm:flex-row sm:items-center"><div><p className="font-bold">Want to act as an organization?</p><p className="mt-1 text-sm text-muted-foreground">Submit your profile for owner verification first.</p></div><Button asChild variant="outline"><a href="/account"><Building2 /> Apply now</a></Button></div>}
             {viewer?.role === "organization_pending" && <div className="mb-5 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-5"><p className="font-bold text-amber-100">Verification pending</p><p className="mt-1 text-sm text-muted-foreground">The CIVIQ owner must approve your organization before you can investigate issues.</p></div>}
             <section className="grid gap-4">
-              {hotspots.filter((h) => (h.category === "Water" || h.id === 2) && `${h.area} ${h.issue}`.toLowerCase().includes(orgSearch.toLowerCase())).map((h, index) => {
+              {hotspots.filter((h) => `${h.area} ${h.issue}`.toLowerCase().includes(orgSearch.toLowerCase())).map((h) => {
                 const Icon = layerConfig[h.category].icon;
                 const isAdopted = adopted.includes(h.id);
                 return (
                   <article key={h.id} className="grid gap-5 rounded-2xl border bg-card/75 p-5 soft-ring md:grid-cols-[auto_1fr_auto] md:items-center">
                     <div className="grid size-14 place-items-center rounded-2xl" style={{ background: layerConfig[h.category].soft, color: layerConfig[h.category].color }}><Icon className="size-6" /></div>
                     <div>
-                      <div className="mb-2 flex flex-wrap items-center gap-2"><span className="font-mono text-xs text-muted-foreground">MATCH 0{index+1}</span><PriorityBadge value={h.priority} />{isAdopted && <Badge className="bg-primary text-primary-foreground">Under investigation</Badge>}</div>
+                      <div className="mb-2 flex flex-wrap items-center gap-2"><span className="font-mono text-xs text-muted-foreground">ZONE {String(h.id).padStart(3, "0")}</span><PriorityBadge value={h.priority} />{isAdopted && <Badge className="bg-primary text-primary-foreground">Under investigation</Badge>}</div>
                       <h2 className="text-lg font-bold">{h.area} · {h.issue}</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">{h.reports} reports · +{h.growth}% in 24h · Active for {h.since}</p>
-                      <div className="mt-3 flex items-center gap-2 text-xs text-primary"><ShieldCheck className="size-3.5" /> {h.category === "Water" ? "94% expertise match" : "68% regional match"}</div>
+                      <p className="mt-1 text-sm text-muted-foreground">{h.reports} stored zone reports · {h.status ?? "Reported"}</p>
+                      <div className="mt-3 flex items-center gap-2 text-xs text-primary"><ShieldCheck className="size-3.5" /> {h.category} · review expertise and operating area</div>
                     </div>
                     <div className="flex gap-2 md:justify-end"><Button variant="outline" onClick={() => setSelected(h)}>Review</Button>{canInvestigate ? <Button disabled={isAdopted} onClick={() => adoptIssue(h.id)}>{isAdopted ? <><CheckCircle2 /> Adopted</> : <>Investigate <ArrowUpRight /></>}</Button> : <Button asChild variant="secondary"><a href={viewer ? "/account" : "/signin-with-chatgpt?return_to=%2Faccount"} target={viewer ? undefined : "_top"}>{viewer?.role === "organization_pending" ? "Pending approval" : viewer ? "Apply to act" : "Sign in to act"}</a></Button>}</div>
                   </article>
@@ -478,14 +377,7 @@ export default function Home() {
                   {[['Priority', `${selected.priority}/10`], ['Reports', `${selected.reports}`], ['Affected radius', selected.radius], ['Active since', selected.since]].map(([k,v]) => <div key={k} className="rounded-xl border bg-background/35 p-4"><p className="text-xs text-muted-foreground">{k}</p><p className="mt-1 font-mono text-lg font-bold">{v}</p></div>)}
                 </div>
                 <div className="rounded-xl border bg-background/35 p-4"><div className="flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">H3 geographic zone</p><Badge variant="outline">Resolution 8</Badge></div><p className="mt-2 break-all font-mono text-xs text-primary">{selected.h3Cell}</p><p className="mt-2 font-mono text-[11px] text-muted-foreground">{selected.latitude.toFixed(5)}, {selected.longitude.toFixed(5)}</p></div>
-                <div><div className="mb-3 flex items-center justify-between"><p className="font-semibold">Signal trend</p><span className="font-mono text-sm font-bold text-red-300">+{selected.growth}%</span></div><TrendBars /></div>
-                <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5"><div className="mb-3 flex items-center gap-2 text-primary"><Lightbulb className="size-4" /><p className="text-xs font-bold uppercase tracking-widest">AI summary</p></div><p className="text-sm leading-7 text-slate-300">Multiple reports indicate {selected.issue.toLowerCase()} affecting residents across {selected.area}. The signal is geographically concentrated and has increased during the last 24 hours.</p></div>
-                <div>
-                  <div className="mb-3 flex items-center justify-between"><p className="font-semibold">Why {selected.priority}?</p><p className="text-xs text-muted-foreground">Explainable priority</p></div>
-                  <div className="space-y-4">
-                    {[['Complaint density', 91], ['Severity', 84], ['Growth rate', Math.min(selected.growth / 3, 96)], ['Persistence', 72], ['Population impact', 85]].map(([label,value]) => <div key={String(label)}><div className="mb-1.5 flex justify-between text-xs"><span className="text-muted-foreground">{label}</span><span className="font-mono">{(Number(value)/10).toFixed(1)}</span></div><Progress value={Number(value)} className="h-1.5" /></div>)}
-                  </div>
-                </div>
+                <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5"><div className="mb-3 flex items-center gap-2 text-primary"><Lightbulb className="size-4" /><p className="text-sm font-bold">Zone summary</p></div><p className="text-sm leading-7 text-slate-300">{selected.reports} stored zone reports relate to {selected.issue.toLowerCase()} in {selected.area}. Current status: {selected.status ?? "Reported"}.</p><p className="mt-3 text-sm text-muted-foreground">Prototype totals include demonstration data. This is a record-based summary, not AI verification. Historical trends and measured population impact are not yet available.</p></div>
               </div>
               <SheetFooter className="border-t bg-background/20 p-6">{canInvestigate ? <Button onClick={() => adoptIssue(selected.id)} disabled={adopted.includes(selected.id)} className="w-full">{adopted.includes(selected.id) ? <><CheckCircle2 /> Under investigation</> : <><Waves /> Investigate issue</>}</Button> : <Button asChild className="w-full"><a href={viewer ? "/account" : "/signin-with-chatgpt?return_to=%2Faccount"} target={viewer ? undefined : "_top"}>{viewer?.role === "organization_pending" ? "Organization approval pending" : viewer ? "Apply as an organization" : "Sign in to investigate"}</a></Button>}</SheetFooter>
             </>

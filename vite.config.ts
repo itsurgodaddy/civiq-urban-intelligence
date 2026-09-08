@@ -2,6 +2,7 @@ import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
+import { readFile } from "node:fs/promises";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -54,6 +55,21 @@ export default defineConfig(async () => {
     plugins: [
       vinext(),
       sites(),
+      {
+        name: "civiq-maplibre-worker-assets",
+        async generateBundle() {
+          if (this.environment.name !== "client") return;
+          // MapLibre 6 resolves this worker relative to its client chunk.
+          // Preserve both ESM assets, including the worker's relative import.
+          for (const name of ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"]) {
+            this.emitFile({
+              type: "asset",
+              fileName: `assets/${name}`,
+              source: await readFile(new URL(`./node_modules/maplibre-gl/dist/${name}`, import.meta.url)),
+            });
+          }
+        },
+      },
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,

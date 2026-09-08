@@ -8,24 +8,24 @@
 @utility scrollbar-gutter-stable { scrollbar-gutter: stable; }
 
 :root {
-  --background: #07100f;
+  --background: #030b13;
   --foreground: #f2f8f6;
-  --card: #0d1a18;
+  --card: #07141e;
   --card-foreground: #f2f8f6;
   --popover: #0d1a18;
   --popover-foreground: #f2f8f6;
-  --primary: #63f2b0;
+  --primary: #37dff3;
   --primary-foreground: #042019;
-  --secondary: #142522;
+  --secondary: #122432;
   --secondary-foreground: #dbe9e5;
   --muted: #14211f;
-  --muted-foreground: #91a8a2;
+  --muted-foreground: #9aaebe;
   --accent: #17362f;
   --accent-foreground: #c6ffeb;
   --destructive: #ff6b67;
-  --border: #233532;
+  --border: #253b4a;
   --input: #2c403c;
-  --ring: #63f2b0;
+  --ring: #37dff3;
   --chart-1: #63f2b0;
   --chart-2: #63b8ff;
   --chart-3: #ffb95c;
@@ -132,11 +132,121 @@ button, input, textarea { font: inherit; }
 }
 .map-priority-marker:hover,
 .map-priority-marker:focus-visible,
-.map-priority-marker[data-selected="true"] { transform: scale(1.16); box-shadow: 0 0 0 6px rgba(99, 242, 176, .22), 0 10px 32px rgba(0, 0, 0, .5); }
+.map-priority-marker[data-selected="true"] { box-shadow: 0 0 0 6px rgba(99, 242, 176, .22), 0 10px 32px rgba(0, 0, 0, .5); }
 .map-priority-marker[data-category="Water"] { color: #4bb6ff; }
 .map-priority-marker[data-category="Roads"] { color: #ff746d; }
 .map-priority-marker[data-category="Waste"] { color: #52e6a0; }
 .map-priority-marker[data-category="Electricity"] { color: #ffbd59; }
+.map-priority-marker { width: auto; min-width: 5.3rem; height: 2.25rem; padding: 0 .5rem; border-radius: .45rem; font-size: .8rem; }
+.map-priority-marker:hover, .map-priority-marker:focus-visible, .map-priority-marker[data-selected="true"] { outline: 2px solid currentColor; outline-offset: 3px; }
+.city-dashboard { display: grid; grid-template-columns: 220px minmax(0, 1fr) 290px; align-items: start; gap: 14px; }
+.city-panel { min-width: 0; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(145deg, #091724, #040e17); padding: 16px; }
+.city-kicker { display: flex; align-items: center; gap: 8px; margin: 0 0 16px; font-size: .875rem; font-weight: 600; text-transform: uppercase; color: #b9cbd8; letter-spacing: .035em; }
+.city-stat-list { display: grid; gap: 10px; }
+.city-stat { display: flex; align-items: center; gap: 12px; padding: 15px 10px; border: 1px solid #233746; border-radius: 8px; background: #06111b; }
+.city-stat-icon { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 48px; border-radius: 9px; }
+.city-stat strong { display: block; font-size: 1.75rem; line-height: 1.1; font-weight: 700; }
+.city-stat div > span { display: block; margin-top: 7px; color: #b2c0ce; font-size: .875rem; }
+.city-filter-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 24px 0 12px; }
+.city-filter-heading .city-kicker { margin: 0; }
+.city-filter-heading > button { color: var(--primary); font-size: .875rem; cursor: pointer; }
+.city-categories { display: grid; gap: 4px; }
+.city-category { display: flex; justify-content: flex-start; gap: 10px; padding: 10px; height: auto; font-size: .875rem; }
+.city-category[aria-pressed="true"] { background: #123544; color: #68e9ff; box-shadow: inset 2px 0 #37dff3; }
+.city-category-count { margin-left: auto; color: #a8bdce; }
+.city-data-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 26px; color: #91a9bb; }
+.city-data-note svg { flex-shrink: 0; margin-top: 3px; }
+.city-data-note p { font-size: .8125rem; line-height: 1.6; margin: 0; }
+.city-workspace { min-width: 0; display: grid; gap: 12px; }
+.city-map-toolbar { display: flex; align-items: center; gap: 10px; }
+.city-search { display: flex; position: relative; flex: 1; min-width: 0; align-items: center; }
+.city-search svg { position: absolute; left: 12px; color: #9db5c5; z-index: 1; }
+.city-search input { padding-left: 38px; background: #06131e; font-size: .875rem; }
+.city-map-stage { position: relative; min-width: 0; }
+.city-map-stage .civiq-map-shell { border-radius: 10px; min-height: 520px; }
+.city-map-stage .civiq-map { min-height: 520px; }
+.city-analytics-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.city-summary .city-kicker { color: #37dff3; }
+.city-summary p { margin: 0 0 12px; font-size: 1rem; line-height: 1.55; color: #c1d0dc; }
+.city-footnote { display: block; color: #91a9bb; font-size: .8125rem; line-height: 1.5; }
+.city-breakdown { display: grid; gap: 12px; margin-top: 14px; }
+.city-breakdown-label { display: flex; justify-content: space-between; font-size: .875rem; margin-bottom: 5px; }
+.city-bar { height: 5px; background: #142737; border-radius: 4px; overflow: hidden; }
+.city-bar span { display: block; height: 100%; }
+.city-ranked .city-filter-heading { margin-top: 0; }
+.city-zone-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.city-zone-list button { display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px; border: 1px solid #213542; border-radius: 6px; cursor: pointer; }
+.city-zone-list button:hover, .city-zone-list button[aria-pressed="true"] { background: #102534; border-color: #37dff3; }
+.city-zone-list button > svg { flex-shrink: 0; }
+.city-zone-list button > span { flex: 1; min-width: 0; }
+.city-zone-list strong { display: block; font-size: .875rem; font-weight: 600; }
+.city-zone-list small { display: block; color: #92adbf; font-size: .8125rem; }
+.city-details { display: grid; gap: 14px; min-width: 0; }
+.city-zone-detail > .city-kicker { border-bottom: 1px solid #513033; padding-bottom: 13px; }
+.city-zone-title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.city-zone-title h3 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+.city-zone-title > span { font-size: 1rem; text-transform: uppercase; font-weight: 600; }
+.city-zone-area { margin: 7px 0 20px; font-size: 1rem; color: #bfccd8; }
+.city-issue-title { border: 1px solid #293e4e; border-radius: 7px; padding: 14px 12px; font-size: 1rem; font-weight: 600; }
+.city-zone-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 23px 0; border-bottom: 1px solid #263b4b; text-align: center; }
+.city-zone-metrics strong { display: block; font-size: 1.5rem; }
+.city-zone-metrics strong small { color: #95aebf; font-size: .875rem; }
+.city-zone-metrics span { display: block; color: #9ab0c2; font-size: .8125rem; margin-top: 4px; }
+.city-zone-facts { display: grid; gap: 14px; margin: 20px 0; }
+.city-zone-facts > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-size: .875rem; }
+.city-zone-facts dt { color: #9db1c2; }
+.city-zone-facts dd { margin: 0; }
+.city-cell-id { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: .8125rem; }
+.city-opportunity { border-color: #317a54; }
+.city-opportunity .city-kicker { color: #71eea3; }
+.city-opportunity h3 { margin: 0 0 6px; font-size: 1.125rem; font-weight: 600; color: #74f1a9; }
+.city-opportunity > p:not(.city-footnote) { color: #b1c0cf; font-size: 1rem; }
+.city-opportunity > button { margin-top: 20px; border-color: #317a54; color: #71eea3; }
+.city-empty-map { position: absolute; top: 40%; left: 10%; right: 10%; padding: 18px; border: 1px solid var(--border); border-radius: 10px; background: #06111bf2; text-align: center; font-size: 1rem; z-index: 25; }
+.city-notice { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; background: #322614; color: #ffe1a6; border-radius: 8px; font-size: .875rem; }
+.city-period-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+.city-period-buttons { display: flex; gap: 6px; }
+.city-report-panels { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; }
+.city-trend-chart { width: 100%; height: auto; margin-top: 12px; }
+.city-trend-dates { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: #9ab0c2; font-size: .8125rem; }
+.city-trend-table { margin-top: 16px; font-size: .875rem; }
+.city-trend-table summary { cursor: pointer; color: var(--primary); }
+.city-trend-table > div { max-height: 230px; overflow: auto; margin-top: 10px; }
+.city-trend-table table { width: 100%; border-collapse: collapse; text-align: left; }
+.city-trend-table caption { text-align: left; margin-bottom: 8px; color: #9ab0c2; }
+.city-trend-table th, .city-trend-table td { padding: 7px; border-bottom: 1px solid var(--border); font-weight: 400; }
+.city-processing-steps { display: grid; gap: 7px; margin-bottom: 16px; }
+.city-processing-step { display: flex; align-items: center; gap: 12px; }
+.city-processing-step > svg { color: var(--primary); flex-shrink: 0; }
+.city-processing-step strong { font-size: 1.5rem; min-width: 32px; }
+.city-processing-step span { font-size: .875rem; color: #c0cfdb; }
+.city-processing-arrow { margin: 0 0 6px 7px; color: #6c879a; }
+.city-processing-pending { display: grid; grid-template-columns: 1fr auto; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 14px; font-size: .8125rem; color: #a8bbca; }
+.city-processing-pending strong { color: #e9bf7a; font-weight: 500; }
+.city-analytics-empty { display: grid; align-content: center; min-height: 150px; color: #a6bbcc; font-size: 1rem; line-height: 1.6; }
+@media (max-width: 1000px) { .city-report-panels { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1199px) {
+  .city-dashboard { grid-template-columns: 190px minmax(0, 1fr); }
+  .city-details { grid-column: 2; grid-template-columns: 1fr 1fr; }
+  .city-overview { grid-row: span 2; }
+}
+@media (max-width: 767px) {
+  .city-dashboard { grid-template-columns: minmax(0, 1fr); }
+  .city-overview { grid-row: auto; }
+  .city-stat-list { grid-template-columns: 1fr 1fr; }
+  .city-stat { padding: 10px; gap: 8px; }
+  .city-stat-icon { width: 30px; height: 36px; }
+  .city-stat strong { font-size: 1.5rem; }
+  .city-categories { display: flex; flex-wrap: wrap; }
+  .city-category-count { display: none; }
+  .city-data-note { margin-top: 14px; }
+  .city-details { grid-column: auto; }
+  .city-map-stage .civiq-map-shell, .city-map-stage .civiq-map { min-height: 460px; }
+}
+@media (max-width: 540px) {
+  .city-analytics-row, .city-details, .city-zone-list { grid-template-columns: minmax(0, 1fr); }
+  .city-panel { padding: 13px; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

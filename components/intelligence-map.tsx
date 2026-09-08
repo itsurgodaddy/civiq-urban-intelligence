@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { cellToBoundary, isValidCell, latLngToCell } from "h3-js";
+import { cellToBoundary, cellToLatLng, isValidCell, latLngToCell } from "h3-js";
 import { Crosshair, Hexagon, Radio } from "lucide-react";
 
 export type GeographicHotspot = {
@@ -21,14 +21,12 @@ type IntelligenceMapProps = {
   hotspots: GeographicHotspot[];
   selectedId?: number | null;
   onSelect: (hotspot: GeographicHotspot) => void;
+  showHexagons?: boolean;
 };
 
-const zoneColors: Record<GeographicHotspot["category"], string> = {
-  Water: "#4bb6ff",
-  Roads: "#ff746d",
-  Waste: "#52e6a0",
-  Electricity: "#ffbd59",
-};
+function priorityColor(priority: number) {
+  return priority >= 8 ? "#ff514e" : priority >= 6 ? "#ff9d25" : priority >= 3 ? "#e8d642" : "#6bdc71";
+}
 
 function zoneBoundary(hotspot: GeographicHotspot) {
   const cell = isValidCell(hotspot.h3Cell)
@@ -42,7 +40,7 @@ type ProjectedZone = {
   points: string;
 };
 
-export function IntelligenceMap({ hotspots, selectedId, onSelect }: IntelligenceMapProps) {
+export function IntelligenceMap({ hotspots, selectedId, onSelect, showHexagons = true }: IntelligenceMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const mapLibraryRef = useRef<typeof import("maplibre-gl") | null>(null);
@@ -60,6 +58,8 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     let disposed = false;
+    let observer: ResizeObserver | undefined;
+    let projectionFrame = 0;
 
     void import("maplibre-gl").then((maplibregl) => {
       if (disposed || !containerRef.current) return;
@@ -71,7 +71,7 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
         zoom: 11.35,
         minZoom: 9,
         maxZoom: 17,
-        attributionControl: true,
+        attributionControl: {},
         style: {
           version: 8,
           sources: {
@@ -105,7 +105,6 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
         showAccuracyCircle: true,
       }), "top-right");
 
-      let projectionFrame = 0;
       const projectZones = () => {
         window.cancelAnimationFrame(projectionFrame);
         projectionFrame = window.requestAnimationFrame(() => {
@@ -121,17 +120,24 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
       };
       projectZonesRef.current = projectZones;
 
-      map.once("load", () => {
-        if (disposed) return;
-        projectZones();
-        map.on("move", projectZones);
-        map.on("resize", projectZones);
-        setReady(true);
-      });
-    }).catch(() => setMapUnavailable(true));
+      // H3 geometry uses the map camera, not tile loading or a GeoJSON worker.
+      // Keep zones usable even when the basemap tile service is unavailable.
+      projectZones();
+      map.on("move", projectZones);
+      map.on("resize", projectZones);
+      map.on("error", () => { if (!disposed) setMapUnavailable(true); });
+      observer = new ResizeObserver(() => map.resize());
+      observer.observe(containerRef.current);
+      setReady(true);
+    }).catch((error) => {
+      console.error("CIVIQ map initialization failed", error);
+      if (!disposed) setMapUnavailable(true);
+    });
 
     return () => {
       disposed = true;
+      window.cancelAnimationFrame(projectionFrame);
+      observer?.disconnect();
       projectZonesRef.current = () => undefined;
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
@@ -153,15 +159,17 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
       markerButton.className = "map-priority-marker";
       markerButton.dataset.category = hotspot.category;
       markerButton.dataset.selected = String(hotspot.id === selectedId);
-      markerButton.textContent = hotspot.priority.toFixed(1);
+      markerButton.textContent = `Z-${String(hotspot.id).padStart(3, "0")} · ${hotspot.priority.toFixed(1)}`;
+      markerButton.style.color = priorityColor(hotspot.priority);
       markerButton.title = `${hotspot.area}: ${hotspot.issue}`;
       markerButton.setAttribute("aria-label", `Open ${hotspot.area} ${hotspot.category} hotspot`);
       markerButton.addEventListener("click", (event) => {
         event.stopPropagation();
         selectRef.current(hotspot);
       });
+      const [latitude, longitude] = isValidCell(hotspot.h3Cell) ? cellToLatLng(hotspot.h3Cell) : [hotspot.latitude, hotspot.longitude];
       return new maplibregl.Marker({ element: markerButton, anchor: "center" })
-        .setLngLat([hotspot.longitude, hotspot.latitude])
+        .setLngLat([longitude, latitude])
         .addTo(map);
     });
   }, [hotspots, ready, selectedId]);
@@ -177,10 +185,10 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
     <div className="civiq-map-shell relative min-h-[540px] overflow-hidden rounded-2xl border bg-[#091513] soft-ring">
       <div ref={containerRef} className="civiq-map absolute inset-0" aria-label="Interactive Delhi civic intelligence map" />
 
-      {ready && (
+      {ready && showHexagons && (
         <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full" aria-label={`${projectedZones.length} visible H3 priority zones`}>
           {projectedZones.map(({ hotspot, points }) => {
-            const color = zoneColors[hotspot.category];
+            const color = priorityColor(hotspot.priority);
             const selected = hotspot.id === selectedId;
             const fillOpacity = Math.min(0.72, 0.28 + hotspot.priority * 0.045);
             return (
@@ -228,19 +236,17 @@ export function IntelligenceMap({ hotspots, selectedId, onSelect }: Intelligence
 
       <div className="pointer-events-none absolute left-4 top-4 z-20 flex flex-wrap gap-2">
         <span className="inline-flex items-center gap-2 rounded-full border bg-[#07100f]/92 px-3 py-2 text-xs font-semibold text-slate-200 backdrop-blur">
-          <Radio className="size-3 text-primary" /> Live Delhi layer
+          <Radio className="size-3 text-primary" /> Delhi · prototype zones
         </span>
         <span className="inline-flex items-center gap-2 rounded-full border bg-[#07100f]/92 px-3 py-2 text-xs font-semibold text-slate-200 backdrop-blur">
-          <Hexagon className="size-3 text-primary" /> H3 resolution 8 · {projectedZones.length} zones
+          <Hexagon className="size-3 text-primary" /> H3 resolution 8 · {showHexagons ? `${projectedZones.length} zones` : "hidden"}
         </span>
       </div>
 
       <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-xl border bg-[#07100f]/92 p-3 backdrop-blur">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Zone priority</p>
-        <div className="flex items-center gap-2 text-xs text-slate-300">
-          <span>Low</span>
-          <div className="h-2 w-24 rounded-full bg-gradient-to-r from-sky-400/25 via-amber-300 to-red-400" />
-          <span>Critical</span>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-slate-300">
+          {[["Low · <3", "#6bdc71"], ["Medium · 3–<6", "#e8d642"], ["High · 6–<8", "#ff9d25"], ["Critical · ≥8", "#ff514e"]].map(([label, color]) => <span key={label} className="flex items-center gap-2"><Hexagon size={13} color={color} />{label}</span>)}
         </div>
       </div>
     </div>
